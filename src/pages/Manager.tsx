@@ -1,0 +1,1322 @@
+import React, { useState, useEffect } from 'react';
+import { api } from '../services/api';
+import { Link } from 'react-router-dom';
+import { 
+  LayoutDashboard, ShoppingBag, Package, DollarSign, 
+  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer
+} from 'lucide-react';
+
+export default function Manager() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [stats, setStats] = useState({ dailyTotal: 0, openOrdersCount: 0 });
+
+  useEffect(() => {
+    loadStats();
+    const interval = setInterval(loadStats, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadStats = async () => {
+    try {
+      const data = await api.getStats();
+      setStats(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
+      {/* Topbar */}
+      <header className="sticky top-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 shrink-0">
+          <Link to="/" className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors" title="Voltar ao Início">
+            <Home size={20} />
+          </Link>
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center shadow-lg shadow-blue-900/20 shrink-0">
+            <span className="text-xl">🍻</span>
+          </div>
+          <div className="hidden sm:block">
+            <h1 className="font-bold text-lg leading-tight">Baragem POS</h1>
+            <div className="flex items-center gap-2 text-xs text-emerald-400 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Online
+            </div>
+          </div>
+        </div>
+        
+        <nav className="flex gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-hide -mr-4 pr-4 md:mr-0 md:pr-0">
+          {[
+            { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
+            { id: 'products', label: 'Produtos', icon: ShoppingBag },
+            { id: 'categories', label: 'Categorias', icon: List },
+            { id: 'stock', label: 'Estoque', icon: Package },
+            { id: 'cashier', label: 'Caixa', icon: DollarSign },
+            { id: 'settings', label: 'Configurações', icon: SettingsIcon },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                activeTab === tab.id 
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' 
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <tab.icon size={18} />
+              <span className="hidden sm:inline">{tab.label}</span>
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main className="p-4 md:p-6 max-w-7xl mx-auto">
+        {activeTab === 'dashboard' && <Dashboard stats={stats} />}
+        {activeTab === 'products' && <Products />}
+        {activeTab === 'categories' && <Categories />}
+        {activeTab === 'stock' && <Stock />}
+        {activeTab === 'cashier' && <Cashier stats={stats} />}
+        {activeTab === 'settings' && <Settings />}
+      </main>
+    </div>
+  );
+}
+
+function Categories() {
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<any>(null);
+
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  const loadCategories = () => api.getCategories().then(setCategories);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const data = {
+      id: editingCategory?.id,
+      name: formData.get('name'),
+    };
+    try {
+      await api.saveCategory(data);
+      setIsModalOpen(false);
+      setEditingCategory(null);
+      loadCategories();
+    } catch (err) {
+      alert('Erro ao salvar categoria');
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Tem certeza? Isso pode falhar se houver produtos nesta categoria.')) return;
+    try {
+      await api.deleteCategory(id);
+      loadCategories();
+    } catch (err) {
+      alert('Não foi possível excluir. Verifique se há produtos vinculados.');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Gerenciar Categorias</h2>
+        <button 
+          onClick={() => { setEditingCategory(null); setIsModalOpen(true); }}
+          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
+        >
+          <Plus size={18} /> Nova Categoria
+        </button>
+      </div>
+
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden max-w-2xl overflow-x-auto">
+        <table className="w-full text-left text-sm min-w-[500px]">
+          <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
+            <tr>
+              <th className="px-6 py-4">Nome</th>
+              <th className="px-6 py-4 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {categories.map(cat => (
+              <tr key={cat.id} className="hover:bg-slate-800/30 transition-colors">
+                <td className="px-6 py-4 font-medium text-slate-200">{cat.name}</td>
+                <td className="px-6 py-4 text-right flex justify-end gap-2">
+                  <button 
+                    onClick={() => { setEditingCategory(cat); setIsModalOpen(true); }}
+                    className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
+                  >
+                    <Edit size={16} />
+                  </button>
+                  <button 
+                    onClick={() => handleDelete(cat.id)}
+                    className="text-red-400 hover:text-red-300 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="text-xl font-bold mb-4">
+              {editingCategory ? 'Editar Categoria' : 'Nova Categoria'}
+            </h3>
+            <form onSubmit={handleSave} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Nome</label>
+                <input name="name" defaultValue={editingCategory?.name} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+              <div className="flex justify-end gap-3 mt-6">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
+                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium">Salvar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Dashboard({ stats }: { stats: any }) {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [selectedOrders, setSelectedOrders] = useState<any[]>([]);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [viewDetailsOrder, setViewDetailsOrder] = useState<any>(null);
+  const [includeServiceFee, setIncludeServiceFee] = useState(true);
+  const [coverFee, setCoverFee] = useState(0);
+
+  useEffect(() => {
+    loadOrders();
+    const interval = setInterval(loadOrders, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadOrders = () => api.getOrders('open').then(setOrders);
+
+  const toggleOrderSelection = (order: any) => {
+    if (selectedOrders.find(o => o.id === order.id)) {
+      setSelectedOrders(selectedOrders.filter(o => o.id !== order.id));
+    } else {
+      setSelectedOrders([...selectedOrders, order]);
+    }
+  };
+
+  const handleCloseOrders = async (method: string) => {
+    const ordersToClose = selectedOrders.length > 0 ? selectedOrders : (viewDetailsOrder ? [viewDetailsOrder] : []);
+    
+    try {
+      const subtotal = ordersToClose.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
+      const serviceValue = includeServiceFee ? subtotal * 0.1 : 0;
+      
+      for (const order of ordersToClose) {
+        const orderSubtotal = order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0);
+        const proportion = subtotal > 0 ? orderSubtotal / subtotal : 0;
+        const orderFees = (serviceValue + coverFee) * proportion;
+        const orderTotalToPay = orderSubtotal + orderFees;
+        
+        await api.payOrder(order.id, orderTotalToPay, method);
+      }
+      alert(`${ordersToClose.length} pedido(s) fechado(s) com sucesso!`);
+      setIsPaymentModalOpen(false);
+      setSelectedOrders([]);
+      setViewDetailsOrder(null);
+      setIncludeServiceFee(true);
+      setCoverFee(0);
+      loadOrders();
+    } catch (err) {
+      alert('Erro ao fechar pedidos');
+    }
+  };
+
+  const totalSelected = selectedOrders.reduce((acc, order) => {
+    return acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0);
+  }, 0);
+
+  const totalViewDetails = viewDetailsOrder?.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0) || 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <StatCard title="Vendas Hoje" value={`R$ ${stats.dailyTotal.toFixed(2)}`} icon={DollarSign} color="emerald" />
+        <StatCard title="Pedidos Abertos" value={stats.openOrdersCount} icon={ClipboardList} color="blue" />
+        <StatCard title="Produtos Ativos" value="--" icon={Package} color="purple" />
+      </div>
+
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <ClipboardList className="text-blue-400" />
+            Pedidos em Aberto
+          </h2>
+          {selectedOrders.length > 0 && (
+            <button 
+              onClick={() => {
+                setIncludeServiceFee(true);
+                setCoverFee(0);
+                setIsPaymentModalOpen(true);
+              }}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm animate-in fade-in"
+            >
+              Pagar Selecionados (R$ {totalSelected.toFixed(2)})
+            </button>
+          )}
+        </div>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {orders.map(order => {
+            const isSelected = selectedOrders.find(o => o.id === order.id);
+            return (
+              <div 
+                key={order.id} 
+                className={`relative bg-slate-800/50 border p-4 rounded-xl transition-all cursor-pointer ${
+                  isSelected ? 'border-emerald-500 bg-emerald-900/10' : 'border-slate-700 hover:border-blue-500/50'
+                }`}
+                onClick={() => setViewDetailsOrder(order)}
+              >
+                <div className="absolute top-3 right-3" onClick={(e) => e.stopPropagation()}>
+                  <input 
+                    type="checkbox" 
+                    checked={!!isSelected}
+                    onChange={() => toggleOrderSelection(order)}
+                    className="w-5 h-5 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="flex justify-between items-start mb-2 pr-8">
+                  <span className="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs font-bold">
+                    #{order.pulseira}
+                  </span>
+                  <span className="text-slate-400 text-xs">{new Date(order.created_at).toLocaleTimeString().slice(0,5)}</span>
+                </div>
+                <h3 className="font-bold text-lg text-slate-200">{order.customer_name}</h3>
+                {order.customer_phone && <p className="text-xs text-blue-400">📞 {order.customer_phone}</p>}
+                
+                <div className="mt-3 pt-3 border-t border-slate-700/50 flex justify-between items-center">
+                  <span className="text-sm text-slate-400">{order.items.length} itens</span>
+                  <span className="font-bold text-emerald-400">
+                    R$ {order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+          {orders.length === 0 && (
+            <div className="col-span-full text-center py-12 text-slate-500">
+              Nenhum pedido aberto no momento.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Order Details Modal */}
+      {viewDetailsOrder && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-xl font-bold text-white">Pedido #{viewDetailsOrder.pulseira}</h3>
+                <p className="text-slate-400">{viewDetailsOrder.customer_name}</p>
+                {viewDetailsOrder.customer_phone && (
+                  <p className="text-xs text-blue-400 mt-1">📞 {viewDetailsOrder.customer_phone}</p>
+                )}
+              </div>
+              <button onClick={() => setViewDetailsOrder(null)} className="text-slate-400 hover:text-white">
+                <XCircle size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 mb-4 pr-2">
+              {viewDetailsOrder.items.map((item: any) => (
+                <div key={item.id} className="flex justify-between items-center bg-slate-800/30 p-3 rounded-lg">
+                  <div>
+                    <p className="font-medium text-slate-200">{item.product_name}</p>
+                    <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time.toFixed(2)}</p>
+                  </div>
+                  <p className="font-bold text-slate-300">
+                    R$ {(item.quantity * item.price_at_time).toFixed(2)}
+                  </p>
+                </div>
+              ))}
+              {viewDetailsOrder.items.length === 0 && (
+                <p className="text-center text-slate-500 py-4">Nenhum item neste pedido.</p>
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-slate-800">
+              <div className="flex justify-between items-center mb-4">
+                <span className="text-slate-400">Subtotal</span>
+                <span className="text-2xl font-bold text-emerald-400">
+                  R$ {totalViewDetails.toFixed(2)}
+                </span>
+              </div>
+
+              {isPaymentModalOpen && (
+                <div className="space-y-3 mb-4 border-t border-slate-800 pt-3">
+                   <div className="flex justify-between items-center text-sm">
+                    <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={includeServiceFee}
+                        onChange={(e) => setIncludeServiceFee(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      Taxa de Serviço (10%)
+                    </label>
+                    <span className="text-slate-200 font-medium">
+                      R$ {(includeServiceFee ? totalViewDetails * 0.1 : 0).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-400">Couvert Artístico</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500 text-xs">R$</span>
+                      <input 
+                        type="number" 
+                        min="0"
+                        step="1"
+                        value={coverFee}
+                        onChange={(e) => setCoverFee(parseFloat(e.target.value) || 0)}
+                        className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-right text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-3 border-t border-slate-800">
+                    <span className="text-slate-400">Total Geral</span>
+                    <span className="text-2xl font-bold text-emerald-400">
+                      R$ {(totalViewDetails + (includeServiceFee ? totalViewDetails * 0.1 : 0) + coverFee).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              {!isPaymentModalOpen ? (
+                <button 
+                  onClick={() => {
+                    setIncludeServiceFee(true);
+                    setCoverFee(0);
+                    setIsPaymentModalOpen(true);
+                  }}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold transition-colors"
+                >
+                  Fechar Conta / Pagar
+                </button>
+              ) : (
+                <div className="space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                  <p className="text-center text-sm text-slate-400 mb-2">Selecione o método de pagamento:</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button onClick={() => handleCloseOrders('cash')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm">Dinheiro</button>
+                    <button onClick={() => handleCloseOrders('card')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm">Cartão</button>
+                    <button onClick={() => handleCloseOrders('pix')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm">PIX</button>
+                  </div>
+                  <button onClick={() => setIsPaymentModalOpen(false)} className="w-full text-slate-500 text-sm hover:text-white py-2">Cancelar Pagamento</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+       {/* Multi Payment Modal (only if opened from selection) */}
+       {isPaymentModalOpen && !viewDetailsOrder && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+            <h3 className="text-xl font-bold mb-4 text-white">Pagamento Unificado</h3>
+            <p className="text-slate-400 mb-2">
+              Fechando {selectedOrders.length} pedidos.
+            </p>
+            <p className="text-2xl font-bold text-emerald-400 mb-6">
+              Subtotal: R$ {totalSelected.toFixed(2)}
+            </p>
+
+            <div className="space-y-3 mb-6 border-t border-slate-800 pt-3">
+                <div className="flex justify-between items-center text-sm">
+                <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
+                    <input 
+                    type="checkbox" 
+                    checked={includeServiceFee}
+                    onChange={(e) => setIncludeServiceFee(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
+                    />
+                    Taxa de Serviço (10%)
+                </label>
+                <span className="text-slate-200 font-medium">
+                    R$ {(includeServiceFee ? totalSelected * 0.1 : 0).toFixed(2)}
+                </span>
+                </div>
+
+                <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-400">Couvert Artístico</span>
+                <div className="flex items-center gap-2">
+                    <span className="text-slate-500 text-xs">R$</span>
+                    <input 
+                    type="number" 
+                    min="0"
+                    step="1"
+                    value={coverFee}
+                    onChange={(e) => setCoverFee(parseFloat(e.target.value) || 0)}
+                    className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-right text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                </div>
+                </div>
+
+                <div className="flex justify-between items-center pt-3 border-t border-slate-800">
+                <span className="text-slate-400">Total Geral</span>
+                <span className="text-2xl font-bold text-emerald-400">
+                    R$ {(totalSelected + (includeServiceFee ? totalSelected * 0.1 : 0) + coverFee).toFixed(2)}
+                </span>
+                </div>
+            </div>
+            
+            <div className="space-y-3">
+              <button onClick={() => handleCloseOrders('cash')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">Dinheiro</button>
+              <button onClick={() => handleCloseOrders('card')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">Cartão</button>
+              <button onClick={() => handleCloseOrders('pix')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">PIX</button>
+            </div>
+            <button onClick={() => setIsPaymentModalOpen(false)} className="w-full mt-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Products() {
+  const [products, setProducts] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  
+  // Form State
+  const [productType, setProductType] = useState('simple');
+  const [ingredients, setIngredients] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadProducts();
+    loadCategories();
+  }, []);
+
+  useEffect(() => {
+    if (editingProduct) {
+      setProductType(editingProduct.type || 'simple');
+      setIngredients(editingProduct.ingredients || []);
+    } else {
+      setProductType('simple');
+      setIngredients([]);
+    }
+  }, [editingProduct]);
+
+  const loadProducts = () => api.getProducts().then(setProducts);
+  const loadCategories = () => api.getCategories().then(setCategories);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    
+    const data: any = {
+      id: editingProduct?.id,
+      name: formData.get('name'),
+      image_url: formData.get('image_url'),
+      category_id: parseInt(formData.get('category_id') as string),
+      active: true,
+      type: productType,
+    };
+
+    // Include parent_id if it exists (for variations)
+    if (editingProduct?.parent_id) {
+        data.parent_id = editingProduct.parent_id;
+    }
+
+    if (productType === 'simple' || productType === 'composition') {
+        data.price = parseFloat(formData.get('price') as string);
+        data.cost_price = parseFloat(formData.get('cost_price') as string);
+    } else {
+        data.price = 0; // Default price for variable parent
+        data.cost_price = 0;
+    }
+
+    if (productType === 'simple') {
+        data.stock = parseFloat(formData.get('stock') as string);
+        data.unit = formData.get('unit');
+    } else {
+        data.stock = 0; // Default stock for variable/composition
+        data.unit = 'un';
+    }
+
+    if (productType === 'composition') {
+        data.ingredients = ingredients;
+    }
+    
+    try {
+      await api.saveProduct(data);
+      setIsModalOpen(false);
+      setEditingProduct(null);
+      loadProducts();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar produto');
+    }
+  };
+
+  const addIngredient = () => {
+    setIngredients([...ingredients, { ingredient_id: '', quantity: 1 }]);
+  };
+
+  const updateIngredient = (index: number, field: string, value: any) => {
+    const newIngredients = [...ingredients];
+    newIngredients[index] = { ...newIngredients[index], [field]: value };
+    setIngredients(newIngredients);
+  };
+
+  const removeIngredient = (index: number) => {
+    setIngredients(ingredients.filter((_, i) => i !== index));
+  };
+
+  // Helper to get simple products for ingredients selection
+  const simpleProducts = products.filter(p => p.type === 'simple');
+
+  // Helper to get parent products for variations (if we were implementing that here, but for now we just create the parent)
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Gerenciar Produtos</h2>
+        <button 
+          onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
+          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
+        >
+          <Plus size={18} /> Novo Produto
+        </button>
+      </div>
+
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden overflow-x-auto">
+        <table className="w-full text-left text-sm min-w-[800px]">
+          <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
+            <tr>
+              <th className="px-6 py-4">Produto</th>
+              <th className="px-6 py-4">Tipo</th>
+              <th className="px-6 py-4">Categoria</th>
+              <th className="px-6 py-4">Preço</th>
+              <th className="px-6 py-4">Estoque</th>
+              <th className="px-6 py-4 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {products.filter(p => !p.parent_id).map(product => (
+              <React.Fragment key={product.id}>
+                <tr className="hover:bg-slate-800/30 transition-colors">
+                  <td className="px-6 py-4 font-medium text-slate-200">
+                    {product.name}
+                    {product.type === 'variable' && (
+                        <div className="text-xs text-slate-500 mt-1">
+                            {products.filter(p => p.parent_id === product.id).length} variações
+                        </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                        product.type === 'variable' ? 'bg-purple-500/20 text-purple-400' :
+                        product.type === 'composition' ? 'bg-orange-500/20 text-orange-400' :
+                        'bg-blue-500/20 text-blue-400'
+                    }`}>
+                        {product.type === 'simple' ? 'Simples' : product.type === 'variable' ? 'Variável' : 'Composição'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-slate-400">
+                    <span className="bg-slate-800 px-2 py-1 rounded text-xs border border-slate-700">
+                      {product.category_name || 'Sem categoria'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-emerald-400 font-medium">
+                    {product.type === 'variable' ? '-' : `R$ ${product.price?.toFixed(2)}`}
+                  </td>
+                  <td className="px-6 py-4">
+                    {product.type === 'variable' ? (
+                        <span className="text-slate-500">-</span>
+                    ) : product.type === 'composition' ? (
+                        <span className="text-slate-500">Calc.</span>
+                    ) : (
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                        product.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
+                        }`}>
+                        {product.stock} {product.unit}
+                        </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-right flex justify-end gap-2">
+                    {product.type === 'variable' && (
+                        <button
+                            onClick={() => {
+                                // Open modal to add variation (which is a product with parent_id = product.id)
+                                setEditingProduct({ parent_id: product.id, type: 'simple', category_id: product.category_id });
+                                setIsModalOpen(true);
+                            }}
+                            className="text-purple-400 hover:text-purple-300 p-2 hover:bg-purple-500/10 rounded-lg transition-colors"
+                            title="Adicionar Variação"
+                        >
+                            <Plus size={16} />
+                        </button>
+                    )}
+                    <button 
+                      onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
+                      className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
+                    >
+                      <Edit size={16} />
+                    </button>
+                  </td>
+                </tr>
+                {/* Render Variations */}
+                {products.filter(p => p.parent_id === product.id).map(variation => (
+                    <tr key={variation.id} className="bg-slate-900/30 hover:bg-slate-800/30 transition-colors">
+                        <td className="px-6 py-4 pl-12 font-medium text-slate-300 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-slate-600"></span>
+                            {variation.name}
+                        </td>
+                        <td className="px-6 py-4">
+                            <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                                variation.type === 'composition' ? 'bg-orange-500/20 text-orange-400' :
+                                'bg-blue-500/20 text-blue-400'
+                            }`}>
+                                {variation.type === 'simple' ? 'Simples' : 'Composição'}
+                            </span>
+                        </td>
+                        <td className="px-6 py-4 text-slate-500 text-xs">Variação</td>
+                        <td className="px-6 py-4 text-emerald-400 font-medium">R$ {variation.price?.toFixed(2)}</td>
+                        <td className="px-6 py-4">
+                            {variation.type === 'composition' ? (
+                                <span className="text-slate-500">Calc.</span>
+                            ) : (
+                                <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                variation.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
+                                }`}>
+                                {variation.stock} {variation.unit}
+                                </span>
+                            )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                            <button 
+                            onClick={() => { setEditingProduct(variation); setIsModalOpen(true); }}
+                            className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
+                            >
+                            <Edit size={16} />
+                            </button>
+                        </td>
+                    </tr>
+                ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold mb-4">
+              {editingProduct?.id ? 'Editar Produto' : editingProduct?.parent_id ? 'Nova Variação' : 'Novo Produto'}
+            </h3>
+            <form onSubmit={handleSave} className="space-y-4">
+              
+              {/* Type Selection - Only for new root products */}
+              {!editingProduct?.id && !editingProduct?.parent_id && (
+                  <div className="flex gap-4 mb-4">
+                      {['simple', 'variable', 'composition'].map(type => (
+                          <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-3 flex flex-col items-center gap-2 transition-all ${
+                              productType === type 
+                              ? 'bg-blue-600/20 border-blue-500 text-blue-400' 
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                          }`}>
+                              <input 
+                                  type="radio" 
+                                  name="type" 
+                                  value={type} 
+                                  checked={productType === type} 
+                                  onChange={(e) => setProductType(e.target.value)}
+                                  className="hidden"
+                              />
+                              <span className="font-bold uppercase text-xs">{type === 'simple' ? 'Simples' : type === 'variable' ? 'Variável' : 'Composição'}</span>
+                          </label>
+                      ))}
+                  </div>
+              )}
+
+               {/* Type Selection - For Variations (can be Simple or Composition) */}
+               {editingProduct?.parent_id && !editingProduct?.id && (
+                  <div className="flex gap-4 mb-4">
+                      {['simple', 'composition'].map(type => (
+                          <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-3 flex flex-col items-center gap-2 transition-all ${
+                              productType === type 
+                              ? 'bg-blue-600/20 border-blue-500 text-blue-400' 
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                          }`}>
+                              <input 
+                                  type="radio" 
+                                  name="type" 
+                                  value={type} 
+                                  checked={productType === type} 
+                                  onChange={(e) => setProductType(e.target.value)}
+                                  className="hidden"
+                              />
+                              <span className="font-bold uppercase text-xs">{type === 'simple' ? 'Simples' : 'Composição'}</span>
+                          </label>
+                      ))}
+                  </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Nome</label>
+                <input name="name" defaultValue={editingProduct?.name} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">URL da Imagem</label>
+                <input name="image_url" defaultValue={editingProduct?.image_url} placeholder="https://..." className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+
+              {productType !== 'variable' && (
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Preço Venda (R$)</label>
+                    <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                    <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Preço Custo (R$)</label>
+                    <input name="cost_price" type="number" step="0.01" defaultValue={editingProduct?.cost_price} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                    {productType === 'simple' && (
+                        <>
+                        <div>
+                        <label className="block text-sm font-medium text-slate-400 mb-1">Estoque</label>
+                        <input name="stock" type="number" step="0.001" defaultValue={editingProduct?.stock} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                        </div>
+                        <div>
+                        <label className="block text-sm font-medium text-slate-400 mb-1">Unidade</label>
+                        <select name="unit" defaultValue={editingProduct?.unit || 'un'} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="un">Unidade (un)</option>
+                            <option value="ml">Mililitro (ml)</option>
+                            <option value="l">Litro (l)</option>
+                            <option value="kg">Quilograma (kg)</option>
+                            <option value="g">Grama (g)</option>
+                        </select>
+                        </div>
+                        </>
+                    )}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Categoria</label>
+                <select name="category_id" defaultValue={editingProduct?.category_id} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Ingredients Section for Composition */}
+              {productType === 'composition' && (
+                  <div className="border-t border-slate-800 pt-4 mt-4">
+                      <div className="flex justify-between items-center mb-2">
+                          <label className="block text-sm font-medium text-slate-400">Ingredientes / Composição</label>
+                          <button type="button" onClick={addIngredient} className="text-xs bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded text-blue-400">
+                              + Adicionar
+                          </button>
+                      </div>
+                      <div className="space-y-2">
+                          {ingredients.map((ing, index) => (
+                              <div key={index} className="flex gap-2 items-center">
+                                  <select 
+                                      value={ing.ingredient_id} 
+                                      onChange={(e) => updateIngredient(index, 'ingredient_id', parseInt(e.target.value))}
+                                      className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
+                                  >
+                                      <option value="">Selecione um produto...</option>
+                                      {simpleProducts.map(p => (
+                                          <option key={p.id} value={p.id}>{p.name} ({p.stock} {p.unit})</option>
+                                      ))}
+                                  </select>
+                                  <input 
+                                      type="number" 
+                                      step="0.001"
+                                      value={ing.quantity} 
+                                      onChange={(e) => updateIngredient(index, 'quantity', parseFloat(e.target.value))}
+                                      className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
+                                      placeholder="Qtd"
+                                  />
+                                  <button type="button" onClick={() => removeIngredient(index)} className="text-red-400 hover:bg-red-500/10 p-2 rounded">
+                                      <Trash2 size={16} />
+                                  </button>
+                              </div>
+                          ))}
+                          {ingredients.length === 0 && (
+                              <p className="text-xs text-slate-500 italic">Nenhum ingrediente adicionado.</p>
+                          )}
+                      </div>
+                  </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-800">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
+                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium">Salvar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stock() {
+  const [products, setProducts] = useState<any[]>([]);
+
+  useEffect(() => {
+    api.getProducts().then(setProducts);
+  }, []);
+
+  const updateStock = async (product: any, delta: number) => {
+    const newStock = Math.max(0, product.stock + delta);
+    await api.saveProduct({ ...product, stock: newStock });
+    api.getProducts().then(setProducts);
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold">Controle de Estoque</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {products.map(product => (
+          <div key={product.id} className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
+            <div>
+              <h3 className="font-bold text-slate-200">{product.name}</h3>
+              <span className="text-xs text-slate-500">{product.category}</span>
+            </div>
+            <div className="flex items-center gap-3 bg-slate-800 rounded-lg p-1">
+              <button 
+                onClick={() => updateStock(product, -1)}
+                className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
+              >-</button>
+              <span className={`font-mono font-bold w-8 text-center ${product.stock <= 5 ? 'text-red-400' : 'text-slate-200'}`}>
+                {product.stock}
+              </span>
+              <button 
+                onClick={() => updateStock(product, 1)}
+                className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
+              >+</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Cashier({ stats }: { stats: any }) {
+  const [cashierStatus, setCashierStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalType, setModalType] = useState<'open' | 'close'>('open');
+  const [inputValue, setInputValue] = useState('');
+  const [closedSessionData, setClosedSessionData] = useState<any>(null);
+  const [settings, setSettings] = useState<any>({});
+
+  useEffect(() => {
+    loadStatus();
+    loadSettings();
+  }, []);
+
+  const loadStatus = async () => {
+    try {
+      const data = await api.getCashierStatus();
+      setCashierStatus(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSettings = async () => {
+    try {
+      const data = await api.getSettings();
+      setSettings(data || {});
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleOpenCashier = async () => {
+    try {
+      await api.openCashier(parseFloat(inputValue) || 0);
+      setIsModalOpen(false);
+      setInputValue('');
+      loadStatus();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleCloseCashier = async () => {
+    try {
+      const res = await api.closeCashier(parseFloat(inputValue) || 0);
+      setClosedSessionData(res.session);
+      setIsModalOpen(false);
+      setInputValue('');
+      loadStatus();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handlePrintReceipt = () => {
+    if (!closedSessionData) return;
+
+    const session = closedSessionData;
+    const date = new Date(session.closed_at).toLocaleString('pt-BR');
+    const initial = session.initial_balance || 0;
+    const sales = session.total_cash_sales || 0;
+    const subtotal = initial + sales;
+    const amortization = session.amortization || 0;
+    const final = session.final_balance || 0;
+
+    const content = `
+      <div style="font-family: monospace; width: 300px; padding: 20px; font-size: 12px;">
+        <h2 style="text-align: center; margin: 0;">FECHAMENTO DE CAIXA</h2>
+        <p style="text-align: center; margin: 5px 0 20px 0;">${settings.establishment_name || 'Baragem POS'}</p>
+        
+        <p>Data: ${date}</p>
+        <hr style="border-top: 1px dashed #000; margin: 10px 0;">
+        
+        <div style="display: flex; justify-content: space-between;">
+          <span>Saldo Inicial (Fundo):</span>
+          <span>R$ ${initial.toFixed(2)}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Vendas em Dinheiro:</span>
+          <span>R$ ${sales.toFixed(2)}</span>
+        </div>
+        
+        <hr style="border-top: 1px dashed #000; margin: 10px 0;">
+        
+        <div style="display: flex; justify-content: space-between; font-weight: bold;">
+          <span>Subtotal:</span>
+          <span>R$ ${subtotal.toFixed(2)}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>(-) Amortização/Sangria:</span>
+          <span>R$ ${amortization.toFixed(2)}</span>
+        </div>
+        
+        <hr style="border-top: 1px dashed #000; margin: 10px 0;">
+        
+        <div style="display: flex; justify-content: space-between; font-size: 16px; font-weight: bold;">
+          <span>SALDO FINAL (Gaveta):</span>
+          <span>R$ ${final.toFixed(2)}</span>
+        </div>
+        
+        <br><br><br>
+        <div style="text-align: center; border-top: 1px solid #000; width: 80%; margin: 0 auto;">
+          <span style="font-size: 10px;">Assinatura do Responsável</span>
+        </div>
+      </div>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Recibo de Fechamento</title>
+          </head>
+          <body onload="window.print(); window.close();">
+            ${content}
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
+
+  if (loading) return <div className="text-center py-10 text-slate-500">Carregando status do caixa...</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Status Card */}
+        <div className={`p-6 rounded-2xl border ${cashierStatus?.status === 'open' ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-900/50 border-slate-800'} flex flex-col justify-between`}>
+          <div>
+            <h2 className="text-lg font-bold text-slate-200 mb-1">Status do Caixa</h2>
+            <div className={`text-3xl font-bold ${cashierStatus?.status === 'open' ? 'text-emerald-400' : 'text-red-400'}`}>
+              {cashierStatus?.status === 'open' ? 'ABERTO' : 'FECHADO'}
+            </div>
+            {cashierStatus?.status === 'open' && (
+              <p className="text-slate-400 text-sm mt-2">
+                Aberto em: {new Date(cashierStatus.session.opened_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+          
+          <div className="mt-6">
+            {cashierStatus?.status === 'open' ? (
+              <button 
+                onClick={() => { setModalType('close'); setIsModalOpen(true); }}
+                className="w-full bg-red-600 hover:bg-red-500 text-white py-3 rounded-xl font-bold transition-colors shadow-lg shadow-red-900/20"
+              >
+                Fechar Caixa
+              </button>
+            ) : (
+              <button 
+                onClick={() => { setModalType('open'); setIsModalOpen(true); }}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-900/20"
+              >
+                Abrir Caixa
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Current Session Stats (if open) */}
+        {cashierStatus?.status === 'open' && (
+          <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl space-y-4">
+            <h3 className="font-bold text-slate-200 border-b border-slate-800 pb-2">Resumo da Sessão Atual</h3>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Saldo Inicial (Fundo)</span>
+              <span className="font-mono font-bold text-slate-200">R$ {cashierStatus.session.initial_balance.toFixed(2)}</span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Vendas em Dinheiro</span>
+              <span className="font-mono font-bold text-emerald-400">+ R$ {cashierStatus.session.current_cash_sales.toFixed(2)}</span>
+            </div>
+            
+            <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
+              <span className="text-slate-200 font-bold">Total em Caixa (Estimado)</span>
+              <span className="font-mono font-bold text-xl text-white">R$ {cashierStatus.session.current_balance.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Last Session / Receipt Print */}
+      {closedSessionData && (
+        <div className="bg-blue-900/20 border border-blue-500/30 p-6 rounded-2xl flex justify-between items-center animate-in fade-in slide-in-from-top-4">
+          <div>
+            <h3 className="font-bold text-blue-400">Caixa Fechado com Sucesso!</h3>
+            <p className="text-sm text-slate-400">Saldo Final: R$ {closedSessionData.final_balance.toFixed(2)}</p>
+          </div>
+          <button 
+            onClick={handlePrintReceipt}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
+          >
+            <Printer size={18} /> Imprimir Recibo
+          </button>
+        </div>
+      )}
+
+      {/* Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in duration-200">
+            <h3 className="text-xl font-bold mb-4 text-white">
+              {modalType === 'open' ? 'Abrir Caixa' : 'Fechar Caixa'}
+            </h3>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-400 mb-2">
+                {modalType === 'open' ? 'Valor de Fundo de Caixa (Troco Inicial)' : 'Valor de Amortização / Sangria'}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">R$</span>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  min="0"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-lg text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  autoFocus
+                />
+              </div>
+              {modalType === 'close' && (
+                <p className="text-xs text-slate-500 mt-2">
+                  Informe o valor retirado do caixa para depósito ou pagamento de despesas. 
+                  O sistema calculará o saldo final subtraindo este valor do total em caixa.
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="flex-1 py-3 text-slate-400 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={modalType === 'open' ? handleOpenCashier : handleCloseCashier}
+                className={`flex-1 ${modalType === 'open' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'} text-white py-3 rounded-xl font-bold transition-colors`}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ title, value, icon: Icon, color }: any) {
+  const colors: any = {
+    emerald: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    purple: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  };
+  
+  return (
+    <div className={`p-6 rounded-2xl border ${colors[color]} flex items-center gap-4`}>
+      <div className={`p-3 rounded-xl bg-slate-950/50`}>
+        <Icon size={24} />
+      </div>
+      <div>
+        <p className="text-sm font-medium opacity-80">{title}</p>
+        <p className="text-2xl font-bold">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function Settings() {
+  const [settings, setSettings] = useState({
+    establishment_name: '',
+    establishment_address: '',
+    establishment_phone: '',
+    establishment_cnpj: '',
+    receipt_footer: 'Obrigado pela preferência!',
+  });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      const data = await api.getSettings();
+      if (data && Object.keys(data).length > 0) {
+        setSettings(prev => ({ ...prev, ...data }));
+      }
+    } catch (err) {
+      console.error('Error loading settings:', err);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await api.saveSettings(settings);
+      alert('Configurações salvas com sucesso!');
+    } catch (err) {
+      alert('Erro ao salvar configurações');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setSettings(prev => ({ ...prev, [name]: value }));
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      <h2 className="text-2xl font-bold">Configurações do Estabelecimento</h2>
+      
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
+        <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Nome do Estabelecimento</label>
+            <input 
+              name="establishment_name" 
+              value={settings.establishment_name} 
+              onChange={handleChange}
+              placeholder="Ex: Bar do Zé"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Endereço</label>
+            <input 
+              name="establishment_address" 
+              value={settings.establishment_address} 
+              onChange={handleChange}
+              placeholder="Rua Exemplo, 123"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">Telefone</label>
+              <input 
+                name="establishment_phone" 
+                value={settings.establishment_phone} 
+                onChange={handleChange}
+                placeholder="(00) 00000-0000"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">CNPJ (Opcional)</label>
+              <input 
+                name="establishment_cnpj" 
+                value={settings.establishment_cnpj} 
+                onChange={handleChange}
+                placeholder="00.000.000/0000-00"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-1">Rodapé da Comanda</label>
+            <textarea 
+              name="receipt_footer" 
+              value={settings.receipt_footer} 
+              onChange={handleChange}
+              rows={3}
+              placeholder="Mensagem no final da comanda..."
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none resize-none" 
+            />
+          </div>
+
+          <div className="pt-4 flex justify-end">
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Salvando...' : 'Salvar Configurações'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
