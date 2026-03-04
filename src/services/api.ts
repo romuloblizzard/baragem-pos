@@ -176,18 +176,33 @@ export const api = {
     if (error) throw error;
     return order;
   },
-  addOrderItem: async (orderId: number, productId: number, quantity: number) => {
-    const { data: product, error: prodError } = await supabase.from('products').select('*').eq('id', productId).single();
+  addOrderItems: async (orderId: number, items: { id: number, quantity: number }[]) => {
+    // 1. Fetch all product details needed for price_at_time in a single query
+    const productIds = items.map(i => i.id);
+    const { data: products, error: prodError } = await supabase
+      .from('products')
+      .select('id, price, cost_price')
+      .in('id', productIds);
+
     if (prodError) throw prodError;
 
-    const { error } = await supabase.from('order_items').insert({
-      order_id: orderId,
-      product_id: productId,
-      quantity,
-      price_at_time: product.price,
-      cost_at_time: product.cost_price || 0
+    // 2. Prepare bulk insert array
+    const insertData = items.map(item => {
+      const product = products.find(p => p.id === item.id);
+      if (!product) throw new Error(`Product ${item.id} not found`);
+      return {
+        order_id: orderId,
+        product_id: item.id,
+        quantity: item.quantity,
+        price_at_time: product.price,
+        cost_at_time: product.cost_price || 0
+      };
     });
+
+    // 3. Bulk insert into order_items
+    const { error } = await supabase.from('order_items').insert(insertData);
     if (error) throw error;
+
     return { success: true };
   },
   removeOrderItem: async (orderId: number, itemId: number) => {

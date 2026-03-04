@@ -72,7 +72,7 @@ async function runTests() {
         // 5. Adiciona Item à Comanda (Gatilho de Estoque)
         console.log(`6. Testando Adição de Item (Produto ID ${testProduct.id})...`);
         console.log(`   Estoque atual do produto: ${testProduct.stock}`);
-        await api.addOrderItem(newOrder.id, testProduct.id, 2);
+        await api.addOrderItems(newOrder.id, [{ id: testProduct.id, quantity: 2 }]);
         console.log(`✅ Sucesso! Item adicionado.`);
 
         // check updated stock directly to validate Trigger

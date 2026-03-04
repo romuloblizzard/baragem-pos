@@ -213,12 +213,15 @@ export default function Waiter() {
     });
   };
 
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+
   const submitOrder = async () => {
-    if (!currentOrder) return;
+    if (!currentOrder || isSubmittingOrder || cart.length === 0) return;
+    setIsSubmittingOrder(true);
     try {
-      for (const item of cart) {
-        await api.addOrderItem(currentOrder.id, item.id, item.quantity);
-      }
+      const itemsToInsert = cart.map(item => ({ id: item.id, quantity: item.quantity }));
+      await api.addOrderItems(currentOrder.id, itemsToInsert);
+
       setCart([]);
       // Refresh order
       const updated = await api.getOrder(pulseira);
@@ -226,6 +229,9 @@ export default function Waiter() {
       alert('Pedido enviado!');
     } catch (err) {
       alert('Erro ao enviar pedido');
+      console.error(err);
+    } finally {
+      setIsSubmittingOrder(false);
     }
   };
 
@@ -580,8 +586,8 @@ export default function Waiter() {
           <button
             onClick={() => setSelectedCategory(null)}
             className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${selectedCategory === null
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+              ? 'bg-blue-600 text-white'
+              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
               }`}
           >
             Todos
@@ -591,8 +597,8 @@ export default function Waiter() {
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${selectedCategory === cat.id
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                 }`}
             >
               {cat.name}
@@ -743,9 +749,10 @@ export default function Waiter() {
 
           <button
             onClick={submitOrder}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-95 transition-all shrink-0"
+            disabled={isSubmittingOrder || cart.length === 0}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:opacity-70 text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-95 transition-all shrink-0 flex justify-center items-center gap-2"
           >
-            Confirmar Pedido
+            {isSubmittingOrder ? <span className="animate-spin">⏳</span> : 'Confirmar Pedido'}
           </button>
         </div>
       )}
