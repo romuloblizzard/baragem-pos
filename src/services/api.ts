@@ -112,7 +112,16 @@ export const api = {
     return data;
   },
   createCustomer: async (data: any) => {
-    const { data: customer, error } = await supabase.from('customers').insert(data).select().single();
+    // Prevent empty strings from triggering unique constraints
+    const cleanData = { ...data };
+    if (!cleanData.document || cleanData.document.trim() === '') {
+      delete cleanData.document;
+    }
+    if (!cleanData.phone || cleanData.phone.trim() === '') {
+      delete cleanData.phone;
+    }
+
+    const { data: customer, error } = await supabase.from('customers').insert(cleanData).select().single();
     if (error) {
       if (error.code === '23505') throw new Error('Documento já cadastrado');
       throw error;
