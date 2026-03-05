@@ -49,6 +49,7 @@ export default function Manager() {
         <nav className="flex gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-hide -mr-4 pr-4 md:mr-0 md:pr-0">
           {[
             { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
+            { id: 'history', label: 'Histórico', icon: ClipboardList },
             { id: 'products', label: 'Produtos', icon: ShoppingBag },
             { id: 'categories', label: 'Categorias', icon: List },
             { id: 'stock', label: 'Estoque', icon: Package },
@@ -72,6 +73,7 @@ export default function Manager() {
 
       <main className="p-4 md:p-6 max-w-7xl mx-auto">
         {activeTab === 'dashboard' && <Dashboard stats={stats} period={period} setPeriod={setPeriod} />}
+        {activeTab === 'history' && <History />}
         {activeTab === 'products' && <Products />}
         {activeTab === 'categories' && <Categories />}
         {activeTab === 'stock' && <Stock />}
@@ -262,8 +264,8 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
             key={p}
             onClick={() => setPeriod(p)}
             className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${period === p
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
           >
             {periodLabels[p]}
@@ -510,6 +512,148 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
               <button onClick={() => handleCloseOrders('pix')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">PIX</button>
             </div>
             <button onClick={() => setIsPaymentModalOpen(false)} className="w-full mt-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function History() {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [filteredOrders, setFilteredOrders] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [viewDetailsOrder, setViewDetailsOrder] = useState<any>(null);
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setFilteredOrders(orders);
+      return;
+    }
+    const lowerTerm = searchTerm.toLowerCase();
+    const filtered = orders.filter(order =>
+      order.customer_name?.toLowerCase().includes(lowerTerm) ||
+      order.pulseira?.toLowerCase().includes(lowerTerm) ||
+      order.items?.some((item: any) => item.product_name?.toLowerCase().includes(lowerTerm))
+    );
+    setFilteredOrders(filtered);
+  }, [searchTerm, orders]);
+
+  const loadOrders = async () => {
+    try {
+      const data = await api.getOrders('paid');
+      setOrders(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const totalViewDetails = viewDetailsOrder?.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0) || 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <ClipboardList className="text-blue-400" />
+          Histórico de Pedidos
+        </h2>
+        <div className="relative w-full md:w-96">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Buscar por cliente, comanda ou produto..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-slate-200"
+          />
+        </div>
+      </div>
+
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredOrders.map(order => (
+            <div
+              key={order.id}
+              className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl hover:border-blue-500/50 transition-all cursor-pointer"
+              onClick={() => setViewDetailsOrder(order)}
+            >
+              <div className="flex justify-between items-start mb-2">
+                <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded text-xs font-bold">
+                  #{order.pulseira}
+                </span>
+                <span className="text-slate-400 text-xs text-right">
+                  {new Date(order.closed_at || order.created_at).toLocaleString()}
+                </span>
+              </div>
+              <h3 className="font-bold text-lg text-slate-200">{order.customer_name}</h3>
+              {order.customer_phone && <p className="text-xs text-blue-400">📞 {order.customer_phone}</p>}
+
+              <div className="mt-3 pt-3 border-t border-slate-700/50 flex justify-between items-center">
+                <span className="text-sm text-slate-400 flex items-center gap-1">
+                  <span className={`w-2 h-2 rounded-full ${order.status === 'paid' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                  Pago
+                </span>
+                <span className="font-bold text-emerald-400">
+                  R$ {order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          ))}
+          {filteredOrders.length === 0 && (
+            <div className="col-span-full text-center py-12 text-slate-500">
+              {searchTerm ? 'Nenhum pedido encontrado para esta busca.' : 'Nenhum pedido fechado ainda.'}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Reused Order Details Modal for view only */}
+      {viewDetailsOrder && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-xl font-bold text-white">Pedido #{viewDetailsOrder.pulseira}</h3>
+                <p className="text-slate-400">{viewDetailsOrder.customer_name}</p>
+                <p className="text-xs text-slate-500 mt-1">Fechado em: {new Date(viewDetailsOrder.closed_at || viewDetailsOrder.created_at).toLocaleString()}</p>
+              </div>
+              <button onClick={() => setViewDetailsOrder(null)} className="text-slate-400 hover:text-white">
+                <XCircle size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 mb-4 pr-2">
+              {viewDetailsOrder.items.map((item: any) => (
+                <div key={item.id} className="flex justify-between items-center bg-slate-800/30 p-3 rounded-lg">
+                  <div>
+                    <p className="font-medium text-slate-200">{item.product_name || `Produto #${item.product_id}`}</p>
+                    <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
+                  </div>
+                  <p className="font-bold text-slate-300">
+                    R$ {(item.quantity * item.price_at_time).toFixed(2)}
+                  </p>
+                </div>
+              ))}
+              {viewDetailsOrder.items.length === 0 && (
+                <p className="text-center text-slate-500 py-4">Nenhum item neste pedido.</p>
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-slate-800">
+              <div className="flex justify-between items-center mb-4 text-lg">
+                <span className="text-slate-400">Total Pago</span>
+                <span className="font-bold text-emerald-400">
+                  R$ {totalViewDetails.toFixed(2)}
+                </span>
+              </div>
+              <button onClick={() => setViewDetailsOrder(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-colors">
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
