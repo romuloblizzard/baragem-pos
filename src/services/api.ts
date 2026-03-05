@@ -228,15 +228,33 @@ export const api = {
   },
 
   // Stats
-  getStats: async () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const { data: txData } = await supabase.from('transactions').select('amount').gte('created_at', today.toISOString());
-    const dailyTotal = txData ? txData.reduce((acc, tx) => acc + Number(tx.amount), 0) : 0;
+  getStats: async (period: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily') => {
+    const startDate = new Date();
+    startDate.setHours(0, 0, 0, 0);
 
-    const { count } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'open');
+    if (period === 'weekly') {
+      const day = startDate.getDay();
+      const diff = startDate.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Monday as start of week
+      startDate.setDate(diff);
+    } else if (period === 'monthly') {
+      startDate.setDate(1);
+    } else if (period === 'yearly') {
+      startDate.setMonth(0, 1);
+    }
 
-    return { dailyTotal, openOrdersCount: count || 0 };
+    const { data: txData } = await supabase.from('transactions').select('amount').gte('created_at', startDate.toISOString());
+    const totalRevenue = txData ? txData.reduce((acc, tx) => acc + Number(tx.amount), 0) : 0;
+
+    const { count: openOrdersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'open');
+
+    // Contar fechadas no período para o ticket médio (ou todos do período)
+    const { count: paidOrdersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'paid').gte('closed_at', startDate.toISOString());
+
+    return {
+      totalRevenue,
+      openOrdersCount: openOrdersCount || 0,
+      paidOrdersCount: paidOrdersCount || 0
+    };
   },
 
   // Settings

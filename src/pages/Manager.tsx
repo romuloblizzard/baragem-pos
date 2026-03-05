@@ -1,24 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Link } from 'react-router-dom';
-import { 
-  LayoutDashboard, ShoppingBag, Package, DollarSign, 
+import {
+  LayoutDashboard, ShoppingBag, Package, DollarSign,
   Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer
 } from 'lucide-react';
 
 export default function Manager() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [stats, setStats] = useState({ dailyTotal: 0, openOrdersCount: 0 });
+  const [stats, setStats] = useState({ totalRevenue: 0, openOrdersCount: 0, paidOrdersCount: 0 });
+  const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('daily');
 
   useEffect(() => {
     loadStats();
     const interval = setInterval(loadStats, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [period]);
 
   const loadStats = async () => {
     try {
-      const data = await api.getStats();
+      const data = await api.getStats(period);
       setStats(data);
     } catch (err) {
       console.error(err);
@@ -44,7 +45,7 @@ export default function Manager() {
             </div>
           </div>
         </div>
-        
+
         <nav className="flex gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-hide -mr-4 pr-4 md:mr-0 md:pr-0">
           {[
             { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
@@ -57,11 +58,10 @@ export default function Manager() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
-                activeTab === tab.id 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' 
-                  : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${activeTab === tab.id
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40'
+                : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
             >
               <tab.icon size={18} />
               <span className="hidden sm:inline">{tab.label}</span>
@@ -71,7 +71,7 @@ export default function Manager() {
       </header>
 
       <main className="p-4 md:p-6 max-w-7xl mx-auto">
-        {activeTab === 'dashboard' && <Dashboard stats={stats} />}
+        {activeTab === 'dashboard' && <Dashboard stats={stats} period={period} setPeriod={setPeriod} />}
         {activeTab === 'products' && <Products />}
         {activeTab === 'categories' && <Categories />}
         {activeTab === 'stock' && <Stock />}
@@ -124,7 +124,7 @@ function Categories() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Gerenciar Categorias</h2>
-        <button 
+        <button
           onClick={() => { setEditingCategory(null); setIsModalOpen(true); }}
           className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
         >
@@ -145,13 +145,13 @@ function Categories() {
               <tr key={cat.id} className="hover:bg-slate-800/30 transition-colors">
                 <td className="px-6 py-4 font-medium text-slate-200">{cat.name}</td>
                 <td className="px-6 py-4 text-right flex justify-end gap-2">
-                  <button 
+                  <button
                     onClick={() => { setEditingCategory(cat); setIsModalOpen(true); }}
                     className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
                   >
                     <Edit size={16} />
                   </button>
-                  <button 
+                  <button
                     onClick={() => handleDelete(cat.id)}
                     className="text-red-400 hover:text-red-300 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
                   >
@@ -187,7 +187,7 @@ function Categories() {
   );
 }
 
-function Dashboard({ stats }: { stats: any }) {
+function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' | 'weekly' | 'monthly' | 'yearly', setPeriod: (p: any) => void }) {
   const [orders, setOrders] = useState<any[]>([]);
   const [selectedOrders, setSelectedOrders] = useState<any[]>([]);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -213,17 +213,17 @@ function Dashboard({ stats }: { stats: any }) {
 
   const handleCloseOrders = async (method: string) => {
     const ordersToClose = selectedOrders.length > 0 ? selectedOrders : (viewDetailsOrder ? [viewDetailsOrder] : []);
-    
+
     try {
       const subtotal = ordersToClose.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
       const serviceValue = includeServiceFee ? subtotal * 0.1 : 0;
-      
+
       for (const order of ordersToClose) {
         const orderSubtotal = order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0);
         const proportion = subtotal > 0 ? orderSubtotal / subtotal : 0;
         const orderFees = (serviceValue + coverFee) * proportion;
         const orderTotalToPay = orderSubtotal + orderFees;
-        
+
         await api.payOrder(order.id, orderTotalToPay, method);
       }
       alert(`${ordersToClose.length} pedido(s) fechado(s) com sucesso!`);
@@ -244,12 +244,38 @@ function Dashboard({ stats }: { stats: any }) {
 
   const totalViewDetails = viewDetailsOrder?.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0) || 0;
 
+  const averageTicket = stats.paidOrdersCount > 0 ? stats.totalRevenue / stats.paidOrdersCount : 0;
+
+  const periodLabels = {
+    daily: 'Hoje',
+    weekly: '7 Dias',
+    monthly: 'Mês',
+    yearly: 'Ano'
+  };
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="Vendas Hoje" value={`R$ ${stats.dailyTotal.toFixed(2)}`} icon={DollarSign} color="emerald" />
-        <StatCard title="Pedidos Abertos" value={stats.openOrdersCount} icon={ClipboardList} color="blue" />
-        <StatCard title="Produtos Ativos" value="--" icon={Package} color="purple" />
+      {/* PERIOD FILTERS */}
+      <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-800 self-start max-w-md mb-6">
+        {(['daily', 'weekly', 'monthly', 'yearly'] as const).map(p => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${period === p
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+              }`}
+          >
+            {periodLabels[p]}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <StatCard title={`Vendas (${periodLabels[period]})`} value={`R$ ${stats.totalRevenue?.toFixed(2) || '0.00'}`} icon={DollarSign} color="emerald" />
+        <StatCard title="Ticket Médio" value={`R$ ${averageTicket.toFixed(2)}`} icon={DollarSign} color="purple" />
+        <StatCard title="Comandas Pagas" value={stats.paidOrdersCount || 0} icon={CheckCircle} color="blue" />
+        <StatCard title="Comandas Abertas" value={stats.openOrdersCount || 0} icon={ClipboardList} color="orange" />
       </div>
 
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
@@ -259,7 +285,7 @@ function Dashboard({ stats }: { stats: any }) {
             Pedidos em Aberto
           </h2>
           {selectedOrders.length > 0 && (
-            <button 
+            <button
               onClick={() => {
                 setIncludeServiceFee(true);
                 setCoverFee(0);
@@ -271,21 +297,20 @@ function Dashboard({ stats }: { stats: any }) {
             </button>
           )}
         </div>
-        
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {orders.map(order => {
             const isSelected = selectedOrders.find(o => o.id === order.id);
             return (
-              <div 
-                key={order.id} 
-                className={`relative bg-slate-800/50 border p-4 rounded-xl transition-all cursor-pointer ${
-                  isSelected ? 'border-emerald-500 bg-emerald-900/10' : 'border-slate-700 hover:border-blue-500/50'
-                }`}
+              <div
+                key={order.id}
+                className={`relative bg-slate-800/50 border p-4 rounded-xl transition-all cursor-pointer ${isSelected ? 'border-emerald-500 bg-emerald-900/10' : 'border-slate-700 hover:border-blue-500/50'
+                  }`}
                 onClick={() => setViewDetailsOrder(order)}
               >
                 <div className="absolute top-3 right-3" onClick={(e) => e.stopPropagation()}>
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={!!isSelected}
                     onChange={() => toggleOrderSelection(order)}
                     className="w-5 h-5 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
@@ -296,11 +321,11 @@ function Dashboard({ stats }: { stats: any }) {
                   <span className="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs font-bold">
                     #{order.pulseira}
                   </span>
-                  <span className="text-slate-400 text-xs">{new Date(order.created_at).toLocaleTimeString().slice(0,5)}</span>
+                  <span className="text-slate-400 text-xs">{new Date(order.created_at).toLocaleTimeString().slice(0, 5)}</span>
                 </div>
                 <h3 className="font-bold text-lg text-slate-200">{order.customer_name}</h3>
                 {order.customer_phone && <p className="text-xs text-blue-400">📞 {order.customer_phone}</p>}
-                
+
                 <div className="mt-3 pt-3 border-t border-slate-700/50 flex justify-between items-center">
                   <span className="text-sm text-slate-400">{order.items.length} itens</span>
                   <span className="font-bold text-emerald-400">
@@ -362,10 +387,10 @@ function Dashboard({ stats }: { stats: any }) {
 
               {isPaymentModalOpen && (
                 <div className="space-y-3 mb-4 border-t border-slate-800 pt-3">
-                   <div className="flex justify-between items-center text-sm">
+                  <div className="flex justify-between items-center text-sm">
                     <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={includeServiceFee}
                         onChange={(e) => setIncludeServiceFee(e.target.checked)}
                         className="rounded border-slate-700 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
@@ -381,8 +406,8 @@ function Dashboard({ stats }: { stats: any }) {
                     <span className="text-slate-400">Couvert Artístico</span>
                     <div className="flex items-center gap-2">
                       <span className="text-slate-500 text-xs">R$</span>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         min="0"
                         step="1"
                         value={coverFee}
@@ -400,9 +425,9 @@ function Dashboard({ stats }: { stats: any }) {
                   </div>
                 </div>
               )}
-              
+
               {!isPaymentModalOpen ? (
-                <button 
+                <button
                   onClick={() => {
                     setIncludeServiceFee(true);
                     setCoverFee(0);
@@ -428,8 +453,8 @@ function Dashboard({ stats }: { stats: any }) {
         </div>
       )}
 
-       {/* Multi Payment Modal (only if opened from selection) */}
-       {isPaymentModalOpen && !viewDetailsOrder && (
+      {/* Multi Payment Modal (only if opened from selection) */}
+      {isPaymentModalOpen && !viewDetailsOrder && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl">
             <h3 className="text-xl font-bold mb-4 text-white">Pagamento Unificado</h3>
@@ -441,44 +466,44 @@ function Dashboard({ stats }: { stats: any }) {
             </p>
 
             <div className="space-y-3 mb-6 border-t border-slate-800 pt-3">
-                <div className="flex justify-between items-center text-sm">
+              <div className="flex justify-between items-center text-sm">
                 <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
-                    <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={includeServiceFee}
                     onChange={(e) => setIncludeServiceFee(e.target.checked)}
                     className="rounded border-slate-700 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
-                    />
-                    Taxa de Serviço (10%)
+                  />
+                  Taxa de Serviço (10%)
                 </label>
                 <span className="text-slate-200 font-medium">
-                    R$ {(includeServiceFee ? totalSelected * 0.1 : 0).toFixed(2)}
+                  R$ {(includeServiceFee ? totalSelected * 0.1 : 0).toFixed(2)}
                 </span>
-                </div>
+              </div>
 
-                <div className="flex justify-between items-center text-sm">
+              <div className="flex justify-between items-center text-sm">
                 <span className="text-slate-400">Couvert Artístico</span>
                 <div className="flex items-center gap-2">
-                    <span className="text-slate-500 text-xs">R$</span>
-                    <input 
-                    type="number" 
+                  <span className="text-slate-500 text-xs">R$</span>
+                  <input
+                    type="number"
                     min="0"
                     step="1"
                     value={coverFee}
                     onChange={(e) => setCoverFee(parseFloat(e.target.value) || 0)}
                     className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-right text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none"
-                    />
+                  />
                 </div>
-                </div>
+              </div>
 
-                <div className="flex justify-between items-center pt-3 border-t border-slate-800">
+              <div className="flex justify-between items-center pt-3 border-t border-slate-800">
                 <span className="text-slate-400">Total Geral</span>
                 <span className="text-2xl font-bold text-emerald-400">
-                    R$ {(totalSelected + (includeServiceFee ? totalSelected * 0.1 : 0) + coverFee).toFixed(2)}
+                  R$ {(totalSelected + (includeServiceFee ? totalSelected * 0.1 : 0) + coverFee).toFixed(2)}
                 </span>
-                </div>
+              </div>
             </div>
-            
+
             <div className="space-y-3">
               <button onClick={() => handleCloseOrders('cash')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">Dinheiro</button>
               <button onClick={() => handleCloseOrders('card')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">Cartão</button>
@@ -497,7 +522,7 @@ function Products() {
   const [categories, setCategories] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
-  
+
   // Form State
   const [productType, setProductType] = useState('simple');
   const [ingredients, setIngredients] = useState<any[]>([]);
@@ -523,7 +548,7 @@ function Products() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
-    
+
     const data: any = {
       id: editingProduct?.id,
       name: formData.get('name'),
@@ -535,29 +560,29 @@ function Products() {
 
     // Include parent_id if it exists (for variations)
     if (editingProduct?.parent_id) {
-        data.parent_id = editingProduct.parent_id;
+      data.parent_id = editingProduct.parent_id;
     }
 
     if (productType === 'simple' || productType === 'composition') {
-        data.price = parseFloat(formData.get('price') as string);
-        data.cost_price = parseFloat(formData.get('cost_price') as string);
+      data.price = parseFloat(formData.get('price') as string);
+      data.cost_price = parseFloat(formData.get('cost_price') as string);
     } else {
-        data.price = 0; // Default price for variable parent
-        data.cost_price = 0;
+      data.price = 0; // Default price for variable parent
+      data.cost_price = 0;
     }
 
     if (productType === 'simple') {
-        data.stock = parseFloat(formData.get('stock') as string);
-        data.unit = formData.get('unit');
+      data.stock = parseFloat(formData.get('stock') as string);
+      data.unit = formData.get('unit');
     } else {
-        data.stock = 0; // Default stock for variable/composition
-        data.unit = 'un';
+      data.stock = 0; // Default stock for variable/composition
+      data.unit = 'un';
     }
 
     if (productType === 'composition') {
-        data.ingredients = ingredients;
+      data.ingredients = ingredients;
     }
-    
+
     try {
       await api.saveProduct(data);
       setIsModalOpen(false);
@@ -592,7 +617,7 @@ function Products() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Gerenciar Produtos</h2>
-        <button 
+        <button
           onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
           className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
         >
@@ -619,18 +644,17 @@ function Products() {
                   <td className="px-6 py-4 font-medium text-slate-200">
                     {product.name}
                     {product.type === 'variable' && (
-                        <div className="text-xs text-slate-500 mt-1">
-                            {products.filter(p => p.parent_id === product.id).length} variações
-                        </div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {products.filter(p => p.parent_id === product.id).length} variações
+                      </div>
                     )}
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
-                        product.type === 'variable' ? 'bg-purple-500/20 text-purple-400' :
-                        product.type === 'composition' ? 'bg-orange-500/20 text-orange-400' :
+                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${product.type === 'variable' ? 'bg-purple-500/20 text-purple-400' :
+                      product.type === 'composition' ? 'bg-orange-500/20 text-orange-400' :
                         'bg-blue-500/20 text-blue-400'
-                    }`}>
-                        {product.type === 'simple' ? 'Simples' : product.type === 'variable' ? 'Variável' : 'Composição'}
+                      }`}>
+                      {product.type === 'simple' ? 'Simples' : product.type === 'variable' ? 'Variável' : 'Composição'}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-slate-400">
@@ -643,32 +667,31 @@ function Products() {
                   </td>
                   <td className="px-6 py-4">
                     {product.type === 'variable' ? (
-                        <span className="text-slate-500">-</span>
+                      <span className="text-slate-500">-</span>
                     ) : product.type === 'composition' ? (
-                        <span className="text-slate-500">Calc.</span>
+                      <span className="text-slate-500">Calc.</span>
                     ) : (
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${
-                        product.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
                         }`}>
                         {product.stock} {product.unit}
-                        </span>
+                      </span>
                     )}
                   </td>
                   <td className="px-6 py-4 text-right flex justify-end gap-2">
                     {product.type === 'variable' && (
-                        <button
-                            onClick={() => {
-                                // Open modal to add variation (which is a product with parent_id = product.id)
-                                setEditingProduct({ parent_id: product.id, type: 'simple', category_id: product.category_id });
-                                setIsModalOpen(true);
-                            }}
-                            className="text-purple-400 hover:text-purple-300 p-2 hover:bg-purple-500/10 rounded-lg transition-colors"
-                            title="Adicionar Variação"
-                        >
-                            <Plus size={16} />
-                        </button>
+                      <button
+                        onClick={() => {
+                          // Open modal to add variation (which is a product with parent_id = product.id)
+                          setEditingProduct({ parent_id: product.id, type: 'simple', category_id: product.category_id });
+                          setIsModalOpen(true);
+                        }}
+                        className="text-purple-400 hover:text-purple-300 p-2 hover:bg-purple-500/10 rounded-lg transition-colors"
+                        title="Adicionar Variação"
+                      >
+                        <Plus size={16} />
+                      </button>
                     )}
-                    <button 
+                    <button
                       onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
                       className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
                     >
@@ -678,41 +701,39 @@ function Products() {
                 </tr>
                 {/* Render Variations */}
                 {products.filter(p => p.parent_id === product.id).map(variation => (
-                    <tr key={variation.id} className="bg-slate-900/30 hover:bg-slate-800/30 transition-colors">
-                        <td className="px-6 py-4 pl-12 font-medium text-slate-300 flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-slate-600"></span>
-                            {variation.name}
-                        </td>
-                        <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
-                                variation.type === 'composition' ? 'bg-orange-500/20 text-orange-400' :
-                                'bg-blue-500/20 text-blue-400'
-                            }`}>
-                                {variation.type === 'simple' ? 'Simples' : 'Composição'}
-                            </span>
-                        </td>
-                        <td className="px-6 py-4 text-slate-500 text-xs">Variação</td>
-                        <td className="px-6 py-4 text-emerald-400 font-medium">R$ {variation.price?.toFixed(2)}</td>
-                        <td className="px-6 py-4">
-                            {variation.type === 'composition' ? (
-                                <span className="text-slate-500">Calc.</span>
-                            ) : (
-                                <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                variation.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
-                                }`}>
-                                {variation.stock} {variation.unit}
-                                </span>
-                            )}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                            <button 
-                            onClick={() => { setEditingProduct(variation); setIsModalOpen(true); }}
-                            className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
-                            >
-                            <Edit size={16} />
-                            </button>
-                        </td>
-                    </tr>
+                  <tr key={variation.id} className="bg-slate-900/30 hover:bg-slate-800/30 transition-colors">
+                    <td className="px-6 py-4 pl-12 font-medium text-slate-300 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-600"></span>
+                      {variation.name}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${variation.type === 'composition' ? 'bg-orange-500/20 text-orange-400' :
+                        'bg-blue-500/20 text-blue-400'
+                        }`}>
+                        {variation.type === 'simple' ? 'Simples' : 'Composição'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-slate-500 text-xs">Variação</td>
+                    <td className="px-6 py-4 text-emerald-400 font-medium">R$ {variation.price?.toFixed(2)}</td>
+                    <td className="px-6 py-4">
+                      {variation.type === 'composition' ? (
+                        <span className="text-slate-500">Calc.</span>
+                      ) : (
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${variation.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
+                          }`}>
+                          {variation.stock} {variation.unit}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => { setEditingProduct(variation); setIsModalOpen(true); }}
+                        className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
+                      >
+                        <Edit size={16} />
+                      </button>
+                    </td>
+                  </tr>
                 ))}
               </React.Fragment>
             ))}
@@ -727,51 +748,49 @@ function Products() {
               {editingProduct?.id ? 'Editar Produto' : editingProduct?.parent_id ? 'Nova Variação' : 'Novo Produto'}
             </h3>
             <form onSubmit={handleSave} className="space-y-4">
-              
+
               {/* Type Selection - Only for new root products */}
               {!editingProduct?.id && !editingProduct?.parent_id && (
-                  <div className="flex gap-4 mb-4">
-                      {['simple', 'variable', 'composition'].map(type => (
-                          <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-3 flex flex-col items-center gap-2 transition-all ${
-                              productType === type 
-                              ? 'bg-blue-600/20 border-blue-500 text-blue-400' 
-                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
-                          }`}>
-                              <input 
-                                  type="radio" 
-                                  name="type" 
-                                  value={type} 
-                                  checked={productType === type} 
-                                  onChange={(e) => setProductType(e.target.value)}
-                                  className="hidden"
-                              />
-                              <span className="font-bold uppercase text-xs">{type === 'simple' ? 'Simples' : type === 'variable' ? 'Variável' : 'Composição'}</span>
-                          </label>
-                      ))}
-                  </div>
+                <div className="flex gap-4 mb-4">
+                  {['simple', 'variable', 'composition'].map(type => (
+                    <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-3 flex flex-col items-center gap-2 transition-all ${productType === type
+                      ? 'bg-blue-600/20 border-blue-500 text-blue-400'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                      }`}>
+                      <input
+                        type="radio"
+                        name="type"
+                        value={type}
+                        checked={productType === type}
+                        onChange={(e) => setProductType(e.target.value)}
+                        className="hidden"
+                      />
+                      <span className="font-bold uppercase text-xs">{type === 'simple' ? 'Simples' : type === 'variable' ? 'Variável' : 'Composição'}</span>
+                    </label>
+                  ))}
+                </div>
               )}
 
-               {/* Type Selection - For Variations (can be Simple or Composition) */}
-               {editingProduct?.parent_id && !editingProduct?.id && (
-                  <div className="flex gap-4 mb-4">
-                      {['simple', 'composition'].map(type => (
-                          <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-3 flex flex-col items-center gap-2 transition-all ${
-                              productType === type 
-                              ? 'bg-blue-600/20 border-blue-500 text-blue-400' 
-                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
-                          }`}>
-                              <input 
-                                  type="radio" 
-                                  name="type" 
-                                  value={type} 
-                                  checked={productType === type} 
-                                  onChange={(e) => setProductType(e.target.value)}
-                                  className="hidden"
-                              />
-                              <span className="font-bold uppercase text-xs">{type === 'simple' ? 'Simples' : 'Composição'}</span>
-                          </label>
-                      ))}
-                  </div>
+              {/* Type Selection - For Variations (can be Simple or Composition) */}
+              {editingProduct?.parent_id && !editingProduct?.id && (
+                <div className="flex gap-4 mb-4">
+                  {['simple', 'composition'].map(type => (
+                    <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-3 flex flex-col items-center gap-2 transition-all ${productType === type
+                      ? 'bg-blue-600/20 border-blue-500 text-blue-400'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                      }`}>
+                      <input
+                        type="radio"
+                        name="type"
+                        value={type}
+                        checked={productType === type}
+                        onChange={(e) => setProductType(e.target.value)}
+                        className="hidden"
+                      />
+                      <span className="font-bold uppercase text-xs">{type === 'simple' ? 'Simples' : 'Composição'}</span>
+                    </label>
+                  ))}
+                </div>
               )}
 
               <div>
@@ -786,32 +805,32 @@ function Products() {
 
               {productType !== 'variable' && (
                 <div className="grid grid-cols-2 gap-4">
-                    <div>
+                  <div>
                     <label className="block text-sm font-medium text-slate-400 mb-1">Preço Venda (R$)</label>
                     <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
-                    </div>
-                    <div>
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-slate-400 mb-1">Preço Custo (R$)</label>
                     <input name="cost_price" type="number" step="0.01" defaultValue={editingProduct?.cost_price} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
-                    </div>
-                    {productType === 'simple' && (
-                        <>
-                        <div>
+                  </div>
+                  {productType === 'simple' && (
+                    <>
+                      <div>
                         <label className="block text-sm font-medium text-slate-400 mb-1">Estoque</label>
                         <input name="stock" type="number" step="0.001" defaultValue={editingProduct?.stock} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
-                        </div>
-                        <div>
+                      </div>
+                      <div>
                         <label className="block text-sm font-medium text-slate-400 mb-1">Unidade</label>
                         <select name="unit" defaultValue={editingProduct?.unit || 'un'} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
-                            <option value="un">Unidade (un)</option>
-                            <option value="ml">Mililitro (ml)</option>
-                            <option value="l">Litro (l)</option>
-                            <option value="kg">Quilograma (kg)</option>
-                            <option value="g">Grama (g)</option>
+                          <option value="un">Unidade (un)</option>
+                          <option value="ml">Mililitro (ml)</option>
+                          <option value="l">Litro (l)</option>
+                          <option value="kg">Quilograma (kg)</option>
+                          <option value="g">Grama (g)</option>
                         </select>
-                        </div>
-                        </>
-                    )}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -826,44 +845,44 @@ function Products() {
 
               {/* Ingredients Section for Composition */}
               {productType === 'composition' && (
-                  <div className="border-t border-slate-800 pt-4 mt-4">
-                      <div className="flex justify-between items-center mb-2">
-                          <label className="block text-sm font-medium text-slate-400">Ingredientes / Composição</label>
-                          <button type="button" onClick={addIngredient} className="text-xs bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded text-blue-400">
-                              + Adicionar
-                          </button>
-                      </div>
-                      <div className="space-y-2">
-                          {ingredients.map((ing, index) => (
-                              <div key={index} className="flex gap-2 items-center">
-                                  <select 
-                                      value={ing.ingredient_id} 
-                                      onChange={(e) => updateIngredient(index, 'ingredient_id', parseInt(e.target.value))}
-                                      className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
-                                  >
-                                      <option value="">Selecione um produto...</option>
-                                      {simpleProducts.map(p => (
-                                          <option key={p.id} value={p.id}>{p.name} ({p.stock} {p.unit})</option>
-                                      ))}
-                                  </select>
-                                  <input 
-                                      type="number" 
-                                      step="0.001"
-                                      value={ing.quantity} 
-                                      onChange={(e) => updateIngredient(index, 'quantity', parseFloat(e.target.value))}
-                                      className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
-                                      placeholder="Qtd"
-                                  />
-                                  <button type="button" onClick={() => removeIngredient(index)} className="text-red-400 hover:bg-red-500/10 p-2 rounded">
-                                      <Trash2 size={16} />
-                                  </button>
-                              </div>
-                          ))}
-                          {ingredients.length === 0 && (
-                              <p className="text-xs text-slate-500 italic">Nenhum ingrediente adicionado.</p>
-                          )}
-                      </div>
+                <div className="border-t border-slate-800 pt-4 mt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-sm font-medium text-slate-400">Ingredientes / Composição</label>
+                    <button type="button" onClick={addIngredient} className="text-xs bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded text-blue-400">
+                      + Adicionar
+                    </button>
                   </div>
+                  <div className="space-y-2">
+                    {ingredients.map((ing, index) => (
+                      <div key={index} className="flex gap-2 items-center">
+                        <select
+                          value={ing.ingredient_id}
+                          onChange={(e) => updateIngredient(index, 'ingredient_id', parseInt(e.target.value))}
+                          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
+                        >
+                          <option value="">Selecione um produto...</option>
+                          {simpleProducts.map(p => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.stock} {p.unit})</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          step="0.001"
+                          value={ing.quantity}
+                          onChange={(e) => updateIngredient(index, 'quantity', parseFloat(e.target.value))}
+                          className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
+                          placeholder="Qtd"
+                        />
+                        <button type="button" onClick={() => removeIngredient(index)} className="text-red-400 hover:bg-red-500/10 p-2 rounded">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                    {ingredients.length === 0 && (
+                      <p className="text-xs text-slate-500 italic">Nenhum ingrediente adicionado.</p>
+                    )}
+                  </div>
+                </div>
               )}
 
               <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-800">
@@ -902,14 +921,14 @@ function Stock() {
               <span className="text-xs text-slate-500">{product.category}</span>
             </div>
             <div className="flex items-center gap-3 bg-slate-800 rounded-lg p-1">
-              <button 
+              <button
                 onClick={() => updateStock(product, -1)}
                 className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
               >-</button>
               <span className={`font-mono font-bold w-8 text-center ${product.stock <= 5 ? 'text-red-400' : 'text-slate-200'}`}>
                 {product.stock}
               </span>
-              <button 
+              <button
                 onClick={() => updateStock(product, 1)}
                 className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
               >+</button>
@@ -1065,17 +1084,17 @@ function Cashier({ stats }: { stats: any }) {
               </p>
             )}
           </div>
-          
+
           <div className="mt-6">
             {cashierStatus?.status === 'open' ? (
-              <button 
+              <button
                 onClick={() => { setModalType('close'); setIsModalOpen(true); }}
                 className="w-full bg-red-600 hover:bg-red-500 text-white py-3 rounded-xl font-bold transition-colors shadow-lg shadow-red-900/20"
               >
                 Fechar Caixa
               </button>
             ) : (
-              <button 
+              <button
                 onClick={() => { setModalType('open'); setIsModalOpen(true); }}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-900/20"
               >
@@ -1089,17 +1108,17 @@ function Cashier({ stats }: { stats: any }) {
         {cashierStatus?.status === 'open' && (
           <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl space-y-4">
             <h3 className="font-bold text-slate-200 border-b border-slate-800 pb-2">Resumo da Sessão Atual</h3>
-            
+
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Saldo Inicial (Fundo)</span>
               <span className="font-mono font-bold text-slate-200">R$ {cashierStatus.session.initial_balance.toFixed(2)}</span>
             </div>
-            
+
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Vendas em Dinheiro</span>
               <span className="font-mono font-bold text-emerald-400">+ R$ {cashierStatus.session.current_cash_sales.toFixed(2)}</span>
             </div>
-            
+
             <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
               <span className="text-slate-200 font-bold">Total em Caixa (Estimado)</span>
               <span className="font-mono font-bold text-xl text-white">R$ {cashierStatus.session.current_balance.toFixed(2)}</span>
@@ -1115,7 +1134,7 @@ function Cashier({ stats }: { stats: any }) {
             <h3 className="font-bold text-blue-400">Caixa Fechado com Sucesso!</h3>
             <p className="text-sm text-slate-400">Saldo Final: R$ {closedSessionData.final_balance.toFixed(2)}</p>
           </div>
-          <button 
+          <button
             onClick={handlePrintReceipt}
             className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
           >
@@ -1131,15 +1150,15 @@ function Cashier({ stats }: { stats: any }) {
             <h3 className="text-xl font-bold mb-4 text-white">
               {modalType === 'open' ? 'Abrir Caixa' : 'Fechar Caixa'}
             </h3>
-            
+
             <div className="mb-6">
               <label className="block text-sm font-medium text-slate-400 mb-2">
                 {modalType === 'open' ? 'Valor de Fundo de Caixa (Troco Inicial)' : 'Valor de Amortização / Sangria'}
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">R$</span>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   step="0.01"
                   min="0"
                   value={inputValue}
@@ -1151,20 +1170,20 @@ function Cashier({ stats }: { stats: any }) {
               </div>
               {modalType === 'close' && (
                 <p className="text-xs text-slate-500 mt-2">
-                  Informe o valor retirado do caixa para depósito ou pagamento de despesas. 
+                  Informe o valor retirado do caixa para depósito ou pagamento de despesas.
                   O sistema calculará o saldo final subtraindo este valor do total em caixa.
                 </p>
               )}
             </div>
 
             <div className="flex gap-3">
-              <button 
+              <button
                 onClick={() => setIsModalOpen(false)}
                 className="flex-1 py-3 text-slate-400 hover:text-white transition-colors"
               >
                 Cancelar
               </button>
-              <button 
+              <button
                 onClick={modalType === 'open' ? handleOpenCashier : handleCloseCashier}
                 className={`flex-1 ${modalType === 'open' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'} text-white py-3 rounded-xl font-bold transition-colors`}
               >
@@ -1184,7 +1203,7 @@ function StatCard({ title, value, icon: Icon, color }: any) {
     blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     purple: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
   };
-  
+
   return (
     <div className={`p-6 rounded-2xl border ${colors[color]} flex items-center gap-4`}>
       <div className={`p-3 rounded-xl bg-slate-950/50`}>
@@ -1244,69 +1263,69 @@ function Settings() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold">Configurações do Estabelecimento</h2>
-      
+
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
         <form onSubmit={handleSave} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-400 mb-1">Nome do Estabelecimento</label>
-            <input 
-              name="establishment_name" 
-              value={settings.establishment_name} 
+            <input
+              name="establishment_name"
+              value={settings.establishment_name}
               onChange={handleChange}
               placeholder="Ex: Bar do Zé"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-400 mb-1">Endereço</label>
-            <input 
-              name="establishment_address" 
-              value={settings.establishment_address} 
+            <input
+              name="establishment_address"
+              value={settings.establishment_address}
               onChange={handleChange}
               placeholder="Rua Exemplo, 123"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
             />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-1">Telefone</label>
-              <input 
-                name="establishment_phone" 
-                value={settings.establishment_phone} 
+              <input
+                name="establishment_phone"
+                value={settings.establishment_phone}
                 onChange={handleChange}
                 placeholder="(00) 00000-0000"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-1">CNPJ (Opcional)</label>
-              <input 
-                name="establishment_cnpj" 
-                value={settings.establishment_cnpj} 
+              <input
+                name="establishment_cnpj"
+                value={settings.establishment_cnpj}
                 onChange={handleChange}
                 placeholder="00.000.000/0000-00"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-400 mb-1">Rodapé da Comanda</label>
-            <textarea 
-              name="receipt_footer" 
-              value={settings.receipt_footer} 
+            <textarea
+              name="receipt_footer"
+              value={settings.receipt_footer}
               onChange={handleChange}
               rows={3}
               placeholder="Mensagem no final da comanda..."
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none resize-none" 
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
             />
           </div>
 
           <div className="pt-4 flex justify-end">
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading}
               className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
