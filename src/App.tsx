@@ -53,7 +53,12 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch (e) {
+      console.error(e);
+    }
     setUserRole(null);
     localStorage.removeItem('pos_role');
     localStorage.removeItem('pos_employee_name');

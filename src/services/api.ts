@@ -355,21 +355,41 @@ export const api = {
 
   // Auth & Employees
   loginWithPin: async (pin: string) => {
-    // Generate a simple identifier for the device/browser for rate limiting
-    let deviceId = localStorage.getItem('pos_device_id');
-    if (!deviceId) {
-      deviceId = Math.random().toString(36).substring(2, 15);
-      localStorage.setItem('pos_device_id', deviceId);
-    }
-
-    // Call the Supabase RPC function we created
-    const { data, error } = await supabase.rpc('login_with_pin', {
-      entered_pin: pin,
-      client_identifier: deviceId
+    // 1. Authenticate with Supabase Auth natively using the mapped fake email
+    const fakeEmail = `${pin}@baragem.local`;
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: fakeEmail,
+      password: pin,
     });
 
-    if (error) throw error;
-    return data; // Returns { success, error, role, name, employee_id }
+    if (authError) {
+      console.error('Auth error:', authError);
+      return { success: false, error: 'PIN Incorreto ou bloqueio por muitas tentativas.' };
+    }
+
+    // 2. Fetch the corresponding Employee to get Role and Name
+    const { data: empData, error: empError } = await supabase
+      .from('employees')
+      .select('role, name, id')
+      .eq('auth_id', authData.user?.id)
+      .single();
+
+    if (empError || !empData) {
+      // In case the employee record was deleted but the auth wasn't
+      await supabase.auth.signOut();
+      return { success: false, error: 'Usuário não encontrado nos registros do sistema.' };
+    }
+
+    return {
+      success: true,
+      role: empData.role,
+      name: empData.name,
+      employee_id: empData.id
+    };
+  },
+
+  logout: async () => {
+    await supabase.auth.signOut();
   },
 
   getEmployees: async () => {
