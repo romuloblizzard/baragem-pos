@@ -354,7 +354,13 @@ export const api = {
   },
 
   // Auth & Employees
-  loginWithPin: async (pin: string) => {
+  loginWithPin: async (pin: string, force: boolean = false) => {
+    let deviceId = localStorage.getItem('pos_device_id');
+    if (!deviceId) {
+      deviceId = Math.random().toString(36).substring(2, 15);
+      localStorage.setItem('pos_device_id', deviceId);
+    }
+
     // 1. Authenticate with Supabase Auth natively using the mapped fake email
     const fakeEmail = `${pin}@baragem.local`;
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
@@ -370,15 +376,27 @@ export const api = {
     // 2. Fetch the corresponding Employee to get Role and Name
     const { data: empData, error: empError } = await supabase
       .from('employees')
-      .select('role, name, id')
+      .select('role, name, id, current_device_id')
       .eq('auth_id', authData.user?.id)
       .single();
 
     if (empError || !empData) {
-      // In case the employee record was deleted but the auth wasn't
       await supabase.auth.signOut();
       return { success: false, error: 'Usuário não encontrado nos registros do sistema.' };
     }
+
+    // 3. Multi-device Exclusivity Check
+    if (empData.current_device_id && empData.current_device_id !== deviceId && !force) {
+      await supabase.auth.signOut(); // Undo the auth login since we are blocking until forced
+      return {
+        success: false,
+        requiresForce: true,
+        error: 'Este usuário já está ativo em outro dispositivo.'
+      };
+    }
+
+    // 4. Update the tracker to claim this device
+    await supabase.from('employees').update({ current_device_id: deviceId }).eq('id', empData.id);
 
     return {
       success: true,
@@ -388,8 +406,31 @@ export const api = {
     };
   },
 
-  logout: async () => {
+  logout: async (employeeId?: string) => {
+    if (employeeId) {
+      await supabase.from('employees').update({ current_device_id: null }).eq('id', employeeId);
+    }
     await supabase.auth.signOut();
+  },
+
+  subscribeToEviction: (employeeId: string, currentDeviceId: string, onEvict: () => void) => {
+    const channel = supabase.channel(`employee-${employeeId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'employees',
+        filter: `id=eq.${employeeId}`,
+      }, (payload) => {
+        const newDeviceId = payload.new.current_device_id;
+        if (newDeviceId && newDeviceId !== currentDeviceId) {
+          onEvict();
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   },
 
   getEmployees: async () => {

@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Lock, Loader2 } from 'lucide-react';
 
 interface LoginProps {
-    onLogin: (pin: string) => void;
+    onLogin: (pin: string, force?: boolean) => void;
     error?: string;
     isLoading?: boolean;
+    requiresForcePin?: string | null;
+    onCancelForce?: () => void;
 }
 
-export default function Login({ onLogin, error, isLoading }: LoginProps) {
+export default function Login({ onLogin, error, isLoading, requiresForcePin, onCancelForce }: LoginProps) {
     const [pin, setPin] = useState('');
 
     const handleKeyPress = (num: string) => {
@@ -26,6 +28,35 @@ export default function Login({ onLogin, error, isLoading }: LoginProps) {
         if (isLoading) return;
         setPin(prev => prev.slice(0, -1));
     };
+
+    if (requiresForcePin) {
+        return (
+            <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 z-50">
+                <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl text-center">
+                    <h3 className="text-xl font-bold mb-4 text-amber-500">Sessão em Uso</h3>
+                    <p className="text-slate-300 mb-6 font-medium">Este usuário já está logado em outro dispositivo neste momento.</p>
+                    <p className="text-slate-400 mb-8 text-sm">Deseja desconectar o outro aparelho e assumir o controle deste Caixa?</p>
+
+                    <div className="flex flex-col gap-3">
+                        <button
+                            disabled={isLoading}
+                            onClick={() => onLogin(requiresForcePin, true)}
+                            className="bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-bold transition-all disabled:opacity-50"
+                        >
+                            {isLoading ? 'Conectando...' : 'Sim, Derrubar Outro'}
+                        </button>
+                        <button
+                            disabled={isLoading}
+                            onClick={onCancelForce}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-lg font-medium transition-all disabled:opacity-50"
+                        >
+                            Cancelar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 z-50">
