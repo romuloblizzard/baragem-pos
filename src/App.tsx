@@ -13,8 +13,21 @@ export default function App() {
 
   useEffect(() => {
     const role = localStorage.getItem('pos_role') as 'admin' | 'waiter' | null;
-    if (role === 'admin' || role === 'waiter') {
+    const loginTime = localStorage.getItem('pos_login_time');
+
+    // Check if login was from today
+    let isToday = false;
+    if (loginTime) {
+      const loginDate = new Date(parseInt(loginTime));
+      const today = new Date();
+      isToday = loginDate.toDateString() === today.toDateString();
+    }
+
+    if ((role === 'admin' || role === 'waiter') && isToday) {
       setUserRole(role);
+    } else {
+      // Force logout if not today or no login time
+      handleLogout();
     }
   }, []);
 
@@ -27,6 +40,7 @@ export default function App() {
         setUserRole(result.role);
         localStorage.setItem('pos_role', result.role);
         localStorage.setItem('pos_employee_name', result.name);
+        localStorage.setItem('pos_login_time', Date.now().toString());
         setLoginError('');
       } else {
         setLoginError(result.error);
@@ -43,6 +57,7 @@ export default function App() {
     setUserRole(null);
     localStorage.removeItem('pos_role');
     localStorage.removeItem('pos_employee_name');
+    localStorage.removeItem('pos_login_time');
   };
 
   if (!userRole) {
