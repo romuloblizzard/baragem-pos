@@ -4,14 +4,12 @@ import Manager from './pages/Manager';
 import Waiter from './pages/Waiter';
 import Home from './pages/Home';
 import Login from './pages/Login';
-
-// Default PINs if no environment variable is set
-const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN || '123456';
-const WAITER_PIN = import.meta.env.VITE_WAITER_PIN || '999999';
+import { api } from './services/api';
 
 export default function App() {
   const [userRole, setUserRole] = useState<'admin' | 'waiter' | null>(null);
   const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   useEffect(() => {
     const role = localStorage.getItem('pos_role') as 'admin' | 'waiter' | null;
@@ -20,27 +18,35 @@ export default function App() {
     }
   }, []);
 
-  const handleLogin = (pin: string) => {
-    if (pin === ADMIN_PIN) {
-      setUserRole('admin');
-      localStorage.setItem('pos_role', 'admin');
-      setLoginError('');
-    } else if (pin === WAITER_PIN) {
-      setUserRole('waiter');
-      localStorage.setItem('pos_role', 'waiter');
-      setLoginError('');
-    } else {
-      setLoginError('PIN incorreto ou não autorizado. Tente novamente.');
+  const handleLogin = async (pin: string) => {
+    setIsLoggingIn(true);
+    setLoginError('');
+    try {
+      const result = await api.loginWithPin(pin);
+      if (result.success) {
+        setUserRole(result.role);
+        localStorage.setItem('pos_role', result.role);
+        localStorage.setItem('pos_employee_name', result.name);
+        setLoginError('');
+      } else {
+        setLoginError(result.error);
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setLoginError('Erro de conexão ao validar o PIN.');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
   const handleLogout = () => {
     setUserRole(null);
     localStorage.removeItem('pos_role');
+    localStorage.removeItem('pos_employee_name');
   };
 
   if (!userRole) {
-    return <Login onLogin={handleLogin} error={loginError} />;
+    return <Login onLogin={handleLogin} error={loginError} isLoading={isLoggingIn} />;
   }
 
   // Define route protection component

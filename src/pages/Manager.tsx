@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
-  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer
+  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users
 } from 'lucide-react';
 
 export default function Manager() {
@@ -50,6 +50,7 @@ export default function Manager() {
           {[
             { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
             { id: 'history', label: 'Histórico', icon: ClipboardList },
+            { id: 'team', label: 'Equipe', icon: Users },
             { id: 'products', label: 'Produtos', icon: ShoppingBag },
             { id: 'categories', label: 'Categorias', icon: List },
             { id: 'stock', label: 'Estoque', icon: Package },
@@ -74,6 +75,7 @@ export default function Manager() {
       <main className="p-4 md:p-6 max-w-7xl mx-auto">
         {activeTab === 'dashboard' && <Dashboard stats={stats} period={period} setPeriod={setPeriod} />}
         {activeTab === 'history' && <History />}
+        {activeTab === 'team' && <Team />}
         {activeTab === 'products' && <Products />}
         {activeTab === 'categories' && <Categories />}
         {activeTab === 'stock' && <Stock />}
@@ -654,6 +656,180 @@ function History() {
                 Fechar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Team() {
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<any>(null);
+
+  useEffect(() => {
+    loadEmployees();
+  }, []);
+
+  const loadEmployees = async () => {
+    try {
+      const data = await api.getEmployees();
+      setEmployees(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+
+    // Auto-generate a random 6 digit PIN if not provided
+    let pin = formData.get('pin') as string;
+    if (!pin) {
+      pin = Math.floor(100000 + Math.random() * 900000).toString();
+    }
+
+    const data = {
+      id: editingEmployee?.id,
+      name: formData.get('name'),
+      role: formData.get('role'),
+      pin: pin,
+      active: formData.get('active') === 'true',
+    };
+
+    try {
+      await api.saveEmployee(data);
+      setIsModalOpen(false);
+      setEditingEmployee(null);
+      loadEmployees();
+      alert(`Funcionário salvo com sucesso!\nO PIN de acesso é: ${pin}\n(Anote este PIN e entregue ao funcionário)`);
+    } catch (err: any) {
+      console.error(err);
+      if (err.message?.includes('unique constraint')) {
+        alert('Este PIN já está em uso por outro funcionário. Tente outro.');
+      } else {
+        alert('Erro ao salvar funcionário.');
+      }
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Deseja realmente remover este funcionário?')) return;
+    try {
+      await api.deleteEmployee(id);
+      loadEmployees();
+    } catch (err) {
+      alert('Não foi possível excluir o funcionário.');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <Users className="text-blue-400" /> Gerenciar Equipe
+        </h2>
+        <button
+          onClick={() => { setEditingEmployee(null); setIsModalOpen(true); }}
+          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
+        >
+          <Plus size={18} /> Novo Funcionário
+        </button>
+      </div>
+
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden overflow-x-auto">
+        <table className="w-full text-left text-sm min-w-[500px]">
+          <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
+            <tr>
+              <th className="px-6 py-4">Nome</th>
+              <th className="px-6 py-4">Cargo</th>
+              <th className="px-6 py-4">Pino de Acesso</th>
+              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {employees.map(emp => (
+              <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
+                <td className="px-6 py-4 font-medium text-slate-200">{emp.name}</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${emp.role === 'admin' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'
+                    }`}>
+                    {emp.role === 'admin' ? 'Gerência' : 'Garçom'}
+                  </span>
+                </td>
+                <td className="px-6 py-4 font-mono text-slate-400 tracking-widest">{emp.pin}</td>
+                <td className="px-6 py-4">
+                  <span className={`flex items-center gap-1 text-xs font-bold ${emp.active ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <span className={`w-2 h-2 rounded-full ${emp.active ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                    {emp.active ? 'Ativo' : 'Inativo'}
+                  </span>
+                </td>
+                <td className="px-6 py-4 text-right flex justify-end gap-2">
+                  <button
+                    onClick={() => { setEditingEmployee(emp); setIsModalOpen(true); }}
+                    className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
+                  >
+                    <Edit size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(emp.id)}
+                    className="text-red-400 hover:text-red-300 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {employees.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-6 py-8 text-center text-slate-500">Nenhum funcionário cadastrado. Utilize o script SQL para adicionar o Admin Padrão.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="text-xl font-bold mb-4">
+              {editingEmployee ? 'Editar Funcionário' : 'Novo Funcionário'}
+            </h3>
+            <form onSubmit={handleSave} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Nome Completo</label>
+                <input name="name" defaultValue={editingEmployee?.name} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Cargo</label>
+                <select name="role" defaultValue={editingEmployee?.role || 'waiter'} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-slate-200">
+                  <option value="waiter">Garçom (Modo Atendimento Vendas)</option>
+                  <option value="admin">Gerente (Acesso Total)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">PIN (Deixe vazio para gerar sozinho)</label>
+                <input name="pin" defaultValue={editingEmployee?.pin} minLength={6} maxLength={6} pattern="\d{6}" placeholder="Ex: 123456" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none font-mono tracking-widest" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Status de Acesso</label>
+                <select name="active" defaultValue={editingEmployee?.active !== false ? 'true' : 'false'} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-slate-200">
+                  <option value="true">Conta Ativa (Pode logar)</option>
+                  <option value="false">Conta Bloqueada</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-800">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
+                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium shadow-lg shadow-blue-500/20">Salvar Dados</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

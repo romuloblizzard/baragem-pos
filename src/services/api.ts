@@ -351,5 +351,45 @@ export const api = {
 
     if (error) throw error;
     return { success: true, session: closedSession };
+  },
+
+  // Auth & Employees
+  loginWithPin: async (pin: string) => {
+    // Generate a simple identifier for the device/browser for rate limiting
+    let deviceId = localStorage.getItem('pos_device_id');
+    if (!deviceId) {
+      deviceId = Math.random().toString(36).substring(2, 15);
+      localStorage.setItem('pos_device_id', deviceId);
+    }
+
+    // Call the Supabase RPC function we created
+    const { data, error } = await supabase.rpc('login_with_pin', {
+      entered_pin: pin,
+      client_identifier: deviceId
+    });
+
+    if (error) throw error;
+    return data; // Returns { success, error, role, name, employee_id }
+  },
+
+  getEmployees: async () => {
+    const { data, error } = await supabase.from('employees').select('*').order('name');
+    if (error) throw error;
+    return data;
+  },
+
+  saveEmployee: async (employee: any) => {
+    if (employee.id) {
+      const { error } = await supabase.from('employees').update(employee).eq('id', employee.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('employees').insert([employee]);
+      if (error) throw error;
+    }
+  },
+
+  deleteEmployee: async (id: string) => {
+    const { error } = await supabase.from('employees').delete().eq('id', id);
+    if (error) throw error;
   }
 };
