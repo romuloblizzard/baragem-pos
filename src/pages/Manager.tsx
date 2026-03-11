@@ -1842,6 +1842,7 @@ function Purchases() {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const data = {
+      id: editingOrder?.id,
       supplier_id: formData.get('supplier_id') ? parseInt(formData.get('supplier_id') as string) : null,
       invoice_number: formData.get('invoice_number'),
       total_amount: parseFloat(formData.get('total_amount') as string) || 0,
@@ -1851,6 +1852,7 @@ function Purchases() {
     try {
       await api.savePurchaseOrder(data, newOrderItems);
       setView('list');
+      setEditingOrder(null);
       setNewOrderItems([{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
       loadData();
     } catch (err: any) {
@@ -1884,6 +1886,16 @@ function Purchases() {
       loadData();
     } catch (err) {
       alert('Não é possível excluir fornecedor logado a pedidos.');
+    }
+  };
+
+  const handleDeleteOrder = async (id: number) => {
+    if (!confirm('Deseja realmente excluir este pedido?')) return;
+    try {
+      await api.deletePurchaseOrder(id);
+      loadData();
+    } catch (err) {
+      alert('Erro ao excluir pedido');
     }
   };
 
@@ -1925,36 +1937,39 @@ function Purchases() {
   };
 
   if (view === 'new_order') {
+    // calculate sum of items automatically to show the user
+    const itemsTotal = newOrderItems.reduce((acc, item) => acc + ((item.raw_quantity || 0) * (item.raw_unit_price || 0)), 0);
+
     return (
       <div className="space-y-6">
         <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold">Novo Pedido de Compra</h2>
-          <button onClick={() => setView('list')} className="text-slate-400 hover:text-white">Voltar</button>
+          <h2 className="text-2xl font-bold">{editingOrder ? 'Editar Pedido' : 'Novo Pedido de Compra'}</h2>
+          <button onClick={() => { setView('list'); setEditingOrder(null); }} className="text-slate-400 hover:text-white">Voltar</button>
         </div>
         <form onSubmit={handleCreateOrder} className="bg-slate-900 border border-slate-700 p-6 rounded-2xl space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">Fornecedor</label>
-              <select name="supplier_id" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2">
+              <select name="supplier_id" defaultValue={editingOrder?.supplier_id || ''} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2">
                 <option value="">Sem fornecedor / Avulso</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Nota Fiscal N.º</label>
-              <input name="invoice_number" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+              <input name="invoice_number" defaultValue={editingOrder?.invoice_number} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Valor do Produto (R$)</label>
-              <input type="number" step="0.01" name="total_amount" required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+              <input type="number" step="0.01" name="total_amount" defaultValue={editingOrder?.total_amount} required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Valor do Frete (R$)</label>
-              <input type="number" step="0.01" name="freight_amount" defaultValue={0} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+              <input type="number" step="0.01" name="freight_amount" defaultValue={editingOrder?.freight_amount || 0} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
             </div>
             <div className="col-span-2">
               <label className="block text-sm text-slate-400 mb-1">Observações</label>
-              <input name="notes" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+              <input name="notes" defaultValue={editingOrder?.notes} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
             </div>
           </div>
 
@@ -1962,9 +1977,9 @@ function Purchases() {
             <h3 className="text-lg font-bold mb-2">Itens da Nota (Cru)</h3>
             <p className="text-xs text-slate-400 mb-4">Adicione os itens conforme vieram escritos na nota fiscal.</p>
             {newOrderItems.map((item, index) => (
-              <div key={index} className="flex gap-2 mb-2 items-center">
+              <div key={index} className="flex gap-2 mb-2 items-center flex-wrap sm:flex-nowrap">
                 <input
-                  placeholder="Nome exato do item na nota" required
+                  placeholder="Nome exato na nota" required
                   value={item.raw_name}
                   onChange={(e) => {
                     const newItems = [...newOrderItems];
@@ -1973,16 +1988,16 @@ function Purchases() {
                   }}
                   className="flex-1 bg-slate-800 border-slate-700 rounded-lg p-2" />
                 <input
-                  type="number" step="0.001" placeholder="Qtd" required
+                  type="number" step="1" placeholder="Qtd" required title="Quantidade Inteira (ex: 2)"
                   value={item.raw_quantity}
                   onChange={(e) => {
                     const newItems = [...newOrderItems];
-                    newItems[index].raw_quantity = parseFloat(e.target.value) || 0;
+                    newItems[index].raw_quantity = parseInt(e.target.value) || 0;
                     setNewOrderItems(newItems);
                   }}
                   className="w-24 bg-slate-800 border-slate-700 rounded-lg p-2" />
                 <input
-                  type="number" step="0.01" placeholder="Prec. Un." required
+                  type="number" step="0.01" placeholder="Custo Un." required title="Valor Unitário de Custo"
                   value={item.raw_unit_price}
                   onChange={(e) => {
                     const newItems = [...newOrderItems];
@@ -1990,10 +2005,27 @@ function Purchases() {
                     setNewOrderItems(newItems);
                   }}
                   className="w-28 bg-slate-800 border-slate-700 rounded-lg p-2" />
+
+                <div className="w-32 bg-slate-800/50 border-slate-700 rounded-lg p-2 text-slate-300 text-sm flex items-center justify-end font-mono">
+                  R$ {((item.raw_quantity || 0) * (item.raw_unit_price || 0)).toFixed(2)}
+                </div>
+
                 <button type="button" onClick={() => setNewOrderItems(newOrderItems.filter((_, i) => i !== index))} className="text-red-400 p-2"><Trash2 size={16} /></button>
               </div>
             ))}
-            <button type="button" onClick={() => setNewOrderItems([...newOrderItems, { raw_name: '', raw_quantity: 1, raw_unit_price: 0 }])} className="text-blue-400 text-sm mt-2">+ Adicionar Linha</button>
+
+            <div className="flex justify-between items-center mt-2">
+              <button type="button" onClick={() => setNewOrderItems([...newOrderItems, { raw_name: '', raw_quantity: 1, raw_unit_price: 0 }])} className="text-blue-400 text-sm font-bold">+ Adicionar Linha</button>
+              <div className="text-sm font-bold text-slate-300 flex items-center gap-2">
+                <span>Total dos Itens: </span>
+                <span className={Math.abs(itemsTotal - parseFloat((document.querySelector('input[name="total_amount"]') as HTMLInputElement)?.value || '0')) > 0.1 ? 'text-orange-400' : 'text-emerald-400'}>
+                  R$ {itemsTotal.toFixed(2)}
+                </span>
+                {Math.abs(itemsTotal - parseFloat((document.querySelector('input[name="total_amount"]') as HTMLInputElement)?.value || '0')) > 0.1 && (
+                  <span className="text-xs text-orange-400 font-normal ml-2" title="O valor dos itens não bate com o valor do produto na nota!">(Valores divergem)</span>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="flex justify-end pt-4 border-t border-slate-700">
@@ -2144,18 +2176,38 @@ function Purchases() {
                 </td>
                 <td className="px-6 py-4 text-right flex justify-end gap-2">
                   {order.status === 'pending' && (
-                    <button
-                      onClick={() => startReconciliation(order)}
-                      className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-1 rounded-lg transition-colors flex items-center gap-1 font-medium"
-                    >
-                      <CheckCircle size={14} /> Conciliar
-                    </button>
+                    <>
+                      <button
+                        onClick={() => startReconciliation(order)}
+                        className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-1 rounded-lg transition-colors flex items-center gap-1 font-medium"
+                      >
+                        <CheckCircle size={14} /> Conciliar
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingOrder(order);
+                          setNewOrderItems(order.items.length > 0 ? order.items : [{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
+                          setView('new_order');
+                        }}
+                        className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
+                        title="Editar Pedido"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteOrder(order.id)}
+                        className="text-red-400 hover:text-red-300 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Excluir Pedido"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
             ))}
             {orders.length === 0 && (
-              <tr><td colSpan={6} className="text-center py-8 text-slate-500 italic">Nenhum pedido de compra registrado.</td></tr>
+              <tr><td colSpan={8} className="text-center py-8 text-slate-500 italic">Nenhum pedido de compra registrado.</td></tr>
             )}
           </tbody>
         </table>

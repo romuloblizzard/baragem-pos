@@ -645,6 +645,16 @@ export const api = {
     return { success: true };
   },
 
+  deletePurchaseOrder: async (orderId: number) => {
+    const { error } = await supabase
+      .from('purchase_orders')
+      .delete()
+      .eq('id', orderId);
+
+    if (error) throw error;
+    return { success: true };
+  },
+
   getProductPurchaseHistory: async (productId: number) => {
     const { data, error } = await supabase
       .from('purchase_order_items')
