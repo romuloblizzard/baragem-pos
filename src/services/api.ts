@@ -67,7 +67,7 @@ export const api = {
     return formattedProducts;
   },
   saveProduct: async (product: any) => {
-    const { ingredients, category_name, ...productData } = product;
+    const { ingredients, category_name, child_product_ids, ...productData } = product;
 
     let productId = product.id;
 
@@ -76,13 +76,28 @@ export const api = {
       if (error) throw error;
 
       if (product.type === 'composition' && ingredients) {
-        await supabase.from('product_ingredients').delete().eq('product_id', productId);
-        const ingData = ingredients.map((ing: any) => ({
-          product_id: productId,
-          ingredient_id: ing.ingredient_id,
-          quantity: ing.quantity
-        }));
-        await supabase.from('product_ingredients').insert(ingData);
+        const { error: delError } = await supabase.from('product_ingredients').delete().eq('product_id', productId);
+        if (delError) throw delError;
+
+        const validIngredients = ingredients.filter((ing: any) => ing.ingredient_id && !isNaN(ing.ingredient_id));
+        if (validIngredients.length > 0) {
+          const ingData = validIngredients.map((ing: any) => ({
+            product_id: productId,
+            ingredient_id: ing.ingredient_id,
+            quantity: parseFloat(ing.quantity) || 1
+          }));
+          const { error: insError } = await supabase.from('product_ingredients').insert(ingData);
+          if (insError) throw insError;
+        }
+      }
+
+      if (product.type === 'variable' && child_product_ids !== undefined) {
+        // Remove those that are no longer selected
+        await supabase.from('products').update({ parent_id: null }).eq('parent_id', productId);
+        // Link the selected ones
+        if (child_product_ids.length > 0) {
+          await supabase.from('products').update({ parent_id: productId }).in('id', child_product_ids);
+        }
       }
     } else {
       const { data, error } = await supabase.from('products').insert(productData).select().single();
@@ -90,12 +105,22 @@ export const api = {
       productId = data.id;
 
       if (product.type === 'composition' && ingredients) {
-        const ingData = ingredients.map((ing: any) => ({
-          product_id: productId,
-          ingredient_id: ing.ingredient_id,
-          quantity: ing.quantity
-        }));
-        await supabase.from('product_ingredients').insert(ingData);
+        const validIngredients = ingredients.filter((ing: any) => ing.ingredient_id && !isNaN(ing.ingredient_id));
+        if (validIngredients.length > 0) {
+          const ingData = validIngredients.map((ing: any) => ({
+            product_id: productId,
+            ingredient_id: ing.ingredient_id,
+            quantity: parseFloat(ing.quantity) || 1
+          }));
+          const { error: insError } = await supabase.from('product_ingredients').insert(ingData);
+          if (insError) throw insError;
+        }
+      }
+
+      if (product.type === 'variable' && child_product_ids !== undefined) {
+        if (child_product_ids.length > 0) {
+          await supabase.from('products').update({ parent_id: productId }).in('id', child_product_ids);
+        }
       }
     }
     return { id: productId };

@@ -846,6 +846,7 @@ function Products() {
   // Form State
   const [productType, setProductType] = useState('simple');
   const [ingredients, setIngredients] = useState<any[]>([]);
+  const [childProducts, setChildProducts] = useState<number[]>([]);
 
   useEffect(() => {
     loadProducts();
@@ -856,11 +857,13 @@ function Products() {
     if (editingProduct) {
       setProductType(editingProduct.type || 'simple');
       setIngredients(editingProduct.ingredients || []);
+      setChildProducts(products.filter(p => p.parent_id === editingProduct.id).map(p => p.id));
     } else {
       setProductType('simple');
       setIngredients([]);
+      setChildProducts([]);
     }
-  }, [editingProduct]);
+  }, [editingProduct, products]);
 
   const loadProducts = () => api.getProducts().then(setProducts);
   const loadCategories = () => api.getCategories().then(setCategories);
@@ -903,6 +906,10 @@ function Products() {
       data.ingredients = ingredients;
     }
 
+    if (productType === 'variable') {
+      data.child_product_ids = childProducts.filter(id => id && !isNaN(id));
+    }
+
     try {
       await api.saveProduct(data);
       setIsModalOpen(false);
@@ -926,6 +933,20 @@ function Products() {
 
   const removeIngredient = (index: number) => {
     setIngredients(ingredients.filter((_, i) => i !== index));
+  };
+
+  const addChildProduct = () => {
+    setChildProducts([...childProducts, 0]);
+  };
+
+  const updateChildProduct = (index: number, value: number) => {
+    const newChildren = [...childProducts];
+    newChildren[index] = value;
+    setChildProducts(newChildren);
+  };
+
+  const removeChildProduct = (index: number) => {
+    setChildProducts(childProducts.filter((_, i) => i !== index));
   };
 
   // Helper to get simple products for ingredients selection
@@ -1200,6 +1221,40 @@ function Products() {
                     ))}
                     {ingredients.length === 0 && (
                       <p className="text-xs text-slate-500 italic">Nenhum ingrediente adicionado.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Variations Section for Variable Product */}
+              {productType === 'variable' && (
+                <div className="border-t border-slate-800 pt-4 mt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-sm font-medium text-slate-400">Produtos Filhos / Variações</label>
+                    <button type="button" onClick={addChildProduct} className="text-xs bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded text-purple-400">
+                      + Adicionar Existente
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {childProducts.map((childId, index) => (
+                      <div key={index} className="flex gap-2 items-center">
+                        <select
+                          value={childId || ''}
+                          onChange={(e) => updateChildProduct(index, parseInt(e.target.value))}
+                          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
+                        >
+                          <option value="">Selecione um produto simples...</option>
+                          {simpleProducts.map(p => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.stock} {p.unit})</option>
+                          ))}
+                        </select>
+                        <button type="button" onClick={() => removeChildProduct(index)} className="text-red-400 hover:bg-red-500/10 p-2 rounded">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                    {childProducts.length === 0 && (
+                      <p className="text-xs text-slate-500 italic">Nenhum produto vinculado ainda. Adicione produtos simples já cadastrados.</p>
                     )}
                   </div>
                 </div>
