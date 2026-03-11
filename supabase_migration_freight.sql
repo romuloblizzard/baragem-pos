@@ -1,0 +1,1 @@
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS freight_amount DECIMAL(10,2) DEFAULT 0;

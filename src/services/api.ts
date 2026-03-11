@@ -552,6 +552,7 @@ export const api = {
         supplier_id: orderData.supplier_id || null,
         invoice_number: orderData.invoice_number,
         total_amount: orderData.total_amount,
+        freight_amount: orderData.freight_amount,
         notes: orderData.notes,
         status: 'pending'
       })

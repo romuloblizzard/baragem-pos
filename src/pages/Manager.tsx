@@ -1844,7 +1844,8 @@ function Purchases() {
     const data = {
       supplier_id: formData.get('supplier_id') ? parseInt(formData.get('supplier_id') as string) : null,
       invoice_number: formData.get('invoice_number'),
-      total_amount: parseFloat(formData.get('total_amount') as string),
+      total_amount: parseFloat(formData.get('total_amount') as string) || 0,
+      freight_amount: parseFloat(formData.get('freight_amount') as string) || 0,
       notes: formData.get('notes')
     };
     try {
@@ -1888,13 +1889,26 @@ function Purchases() {
 
   const startReconciliation = (order: any) => {
     setEditingOrder(order);
+
+    // Calculate total value to distribute freight
+    const totalItemsValue = order.items.reduce((acc: number, item: any) => acc + (item.raw_quantity * item.raw_unit_price), 0);
+    const freightAmount = parseFloat(order.freight_amount) || 0;
+
     // Prepare items for reconciliation state
-    setReconcileItems(order.items.map((item: any) => ({
-      ...item,
-      product_id: '',
-      reconciled_quantity: item.raw_quantity,
-      reconciled_unit_cost: item.raw_unit_price
-    })));
+    setReconcileItems(order.items.map((item: any) => {
+      const itemRawValue = item.raw_quantity * item.raw_unit_price;
+      const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
+      const freightShare = proportion * freightAmount;
+      const totalItemCost = itemRawValue + freightShare;
+      const unitCostWithFreight = item.raw_quantity > 0 ? (totalItemCost / item.raw_quantity) : 0;
+
+      return {
+        ...item,
+        product_id: '',
+        reconciled_quantity: item.raw_quantity,
+        reconciled_unit_cost: unitCostWithFreight
+      };
+    }));
     setView('reconcile');
   };
 
@@ -1931,10 +1945,14 @@ function Purchases() {
               <input name="invoice_number" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Valor Total (R$)</label>
+              <label className="block text-sm text-slate-400 mb-1">Valor do Produto (R$)</label>
               <input type="number" step="0.01" name="total_amount" required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
             </div>
             <div>
+              <label className="block text-sm text-slate-400 mb-1">Valor do Frete (R$)</label>
+              <input type="number" step="0.01" name="freight_amount" defaultValue={0} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+            </div>
+            <div className="col-span-2">
               <label className="block text-sm text-slate-400 mb-1">Observações</label>
               <input name="notes" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
             </div>
@@ -1996,6 +2014,12 @@ function Purchases() {
         <div className="bg-slate-900 border border-slate-700 p-6 rounded-2xl space-y-4">
           <p className="text-sm text-slate-400 mb-4">Mapeie cada item da nota para um produto do sistema e informe qual foi a quantidade equivalente que será dada de entrada no estoque.</p>
 
+          {(editingOrder.freight_amount > 0) && (
+            <div className="mb-4 bg-orange-500/20 text-orange-400 p-3 rounded-xl text-sm font-medium border border-orange-500/30">
+              Custo de frete rateado: O valor do frete (R$ {editingOrder.freight_amount?.toFixed(2)}) será distribuído proporcionalmente no custo de cada produto.
+            </div>
+          )}
+
           {reconcileItems.map((item, index) => (
             <div key={item.id} className="border border-slate-800 p-4 rounded-xl mb-4 bg-slate-950/50">
               <div className="grid grid-cols-2 gap-4 mb-2">
@@ -2030,9 +2054,18 @@ function Purchases() {
                     value={item.reconciled_quantity}
                     onChange={(e) => {
                       const newItems = [...reconcileItems];
-                      newItems[index].reconciled_quantity = parseFloat(e.target.value) || 0;
-                      if (newItems[index].reconciled_quantity > 0) {
-                        newItems[index].reconciled_unit_cost = (item.raw_quantity * item.raw_unit_price) / newItems[index].reconciled_quantity;
+                      const newQty = parseFloat(e.target.value) || 0;
+                      newItems[index].reconciled_quantity = newQty;
+
+                      if (newQty > 0) {
+                        const totalItemsValue = reconcileItems.reduce((acc, i) => acc + (i.raw_quantity * i.raw_unit_price), 0);
+                        const freightAmount = parseFloat(editingOrder.freight_amount) || 0;
+                        const itemRawValue = item.raw_quantity * item.raw_unit_price;
+                        const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
+                        const freightShare = proportion * freightAmount;
+                        const totalItemCost = itemRawValue + freightShare;
+
+                        newItems[index].reconciled_unit_cost = totalItemCost / newQty;
                       }
                       setReconcileItems(newItems);
                     }}
@@ -2086,7 +2119,9 @@ function Purchases() {
               <th className="px-6 py-4">Data</th>
               <th className="px-6 py-4">Fornecedor</th>
               <th className="px-6 py-4">NF</th>
-              <th className="px-6 py-4">Total</th>
+              <th className="px-6 py-4">Produtos</th>
+              <th className="px-6 py-4">Frete</th>
+              <th className="px-6 py-4">Total Nota</th>
               <th className="px-6 py-4">Status</th>
               <th className="px-6 py-4 text-right">Ações</th>
             </tr>
@@ -2098,6 +2133,8 @@ function Purchases() {
                 <td className="px-6 py-4 font-bold text-slate-200">{order.supplier_name}</td>
                 <td className="px-6 py-4 text-slate-400">{order.invoice_number}</td>
                 <td className="px-6 py-4 text-emerald-400">R$ {order.total_amount?.toFixed(2)}</td>
+                <td className="px-6 py-4 text-orange-400">R$ {(order.freight_amount || 0).toFixed(2)}</td>
+                <td className="px-6 py-4 font-bold text-emerald-400">R$ {((parseFloat(order.total_amount) || 0) + (parseFloat(order.freight_amount) || 0)).toFixed(2)}</td>
                 <td className="px-6 py-4">
                   {order.status === 'pending' ? (
                     <span className="px-2 py-1 text-xs font-bold rounded bg-orange-500/20 text-orange-400 uppercase">Pendente</span>
