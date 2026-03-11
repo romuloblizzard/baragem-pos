@@ -1105,7 +1105,14 @@ function Products() {
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-6 py-4 text-right flex justify-end gap-2">
+                      <button
+                        onClick={() => loadHistory(variation)}
+                        className="text-amber-400 hover:text-amber-300 p-2 hover:bg-amber-500/10 rounded-lg transition-colors"
+                        title="Histórico de Compras"
+                      >
+                        <ClipboardList size={16} />
+                      </button>
                       <button
                         onClick={() => { setEditingProduct(variation); setIsModalOpen(true); }}
                         className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
@@ -2164,6 +2171,53 @@ function Purchases() {
             </button>
           </div>
         </div>
+
+        {isProductModalOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold">Cadastrar Produto Rápido</h3>
+                <button
+                  onClick={() => { setIsProductModalOpen(false); setProductCreationIndex(null); }}
+                  className="text-slate-400 hover:text-white"
+                ><XCircle size={24} /></button>
+              </div>
+
+              <form onSubmit={handleSaveQuickProduct} className="space-y-4">
+                <p className="text-sm text-slate-400">Este atalho cria um produto <strong>simples</strong> e sem categoria para facilitar a entrada. Você pode editá-lo depois no cadastro completo.</p>
+
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Nome do Produto</label>
+                  <input name="name" defaultValue={productCreationIndex !== null && reconcileItems[productCreationIndex] ? reconcileItems[productCreationIndex].raw_name : ''} required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Unidade</label>
+                    <select name="unit" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm">
+                      <option value="un">Unidade (un)</option>
+                      <option value="kg">Quilograma (kg)</option>
+                      <option value="g">Grama (g)</option>
+                      <option value="l">Litro (l)</option>
+                      <option value="ml">Mililitro (ml)</option>
+                      <option value="caixa">Caixa</option>
+                      <option value="pct">Pacote</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Preço de Venda (R$)</label>
+                    <input type="number" step="0.01" name="sell_price" defaultValue="0" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 mt-6 border-t border-slate-700 gap-2">
+                  <button type="button" onClick={() => setIsProductModalOpen(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
+                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-bold">Criar e Vincular</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -2319,53 +2373,6 @@ function Purchases() {
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-      )}
-
-      {isProductModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Cadastrar Produto Rápido</h3>
-              <button
-                onClick={() => { setIsProductModalOpen(false); setProductCreationIndex(null); }}
-                className="text-slate-400 hover:text-white"
-              ><XCircle size={24} /></button>
-            </div>
-
-            <form onSubmit={handleSaveQuickProduct} className="space-y-4">
-              <p className="text-sm text-slate-400">Este atalho cria um produto <strong>simples</strong> e sem categoria para facilitar a entrada. Você pode editá-lo depois no cadastro completo.</p>
-
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Nome do Produto</label>
-                <input name="name" defaultValue={productCreationIndex !== null && reconcileItems[productCreationIndex] ? reconcileItems[productCreationIndex].raw_name : ''} required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-400 mb-1">Unidade</label>
-                  <select name="unit" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm">
-                    <option value="un">Unidade (un)</option>
-                    <option value="kg">Quilograma (kg)</option>
-                    <option value="g">Grama (g)</option>
-                    <option value="l">Litro (l)</option>
-                    <option value="ml">Mililitro (ml)</option>
-                    <option value="caixa">Caixa</option>
-                    <option value="pct">Pacote</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-400 mb-1">Preço de Venda (R$)</label>
-                  <input type="number" step="0.01" name="sell_price" defaultValue="0" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-4 mt-6 border-t border-slate-700 gap-2">
-                <button type="button" onClick={() => setIsProductModalOpen(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
-                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-bold">Criar e Vincular</button>
-              </div>
-            </form>
           </div>
         </div>
       )}
