@@ -1901,8 +1901,7 @@ function Purchases() {
         category_id: null,
         stock: 0,
         cost_price: 0,
-        sell_price: parseFloat(formData.get('sell_price') as string) || 0,
-        minimum_stock: 0
+        sell_price: parseFloat(formData.get('sell_price') as string) || 0
       });
 
       // Update local products list
