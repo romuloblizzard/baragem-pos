@@ -545,26 +545,55 @@ export const api = {
     }));
   },
   savePurchaseOrder: async (orderData: any, items: any[]) => {
-    // Insert order
-    const { data: order, error: orderError } = await supabase
-      .from('purchase_orders')
-      .insert({
-        supplier_id: orderData.supplier_id || null,
-        invoice_number: orderData.invoice_number,
-        total_amount: orderData.total_amount,
-        freight_amount: orderData.freight_amount,
-        notes: orderData.notes,
-        status: 'pending'
-      })
-      .select()
-      .single();
+    let orderId = orderData.id;
+    let order;
 
-    if (orderError) throw orderError;
+    if (orderId) {
+      // Update existing order
+      const { data, error } = await supabase
+        .from('purchase_orders')
+        .update({
+          supplier_id: orderData.supplier_id || null,
+          invoice_number: orderData.invoice_number,
+          total_amount: orderData.total_amount,
+          freight_amount: orderData.freight_amount,
+          notes: orderData.notes,
+          status: 'pending'
+        })
+        .eq('id', orderId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      order = data;
+
+      // Delete old items so we can insert new ones
+      await supabase.from('purchase_order_items').delete().eq('purchase_order_id', orderId);
+
+    } else {
+      // Insert new order
+      const { data, error } = await supabase
+        .from('purchase_orders')
+        .insert({
+          supplier_id: orderData.supplier_id || null,
+          invoice_number: orderData.invoice_number,
+          total_amount: orderData.total_amount,
+          freight_amount: orderData.freight_amount,
+          notes: orderData.notes,
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      order = data;
+      orderId = order.id;
+    }
 
     // Insert items
     if (items && items.length > 0) {
       const insertItems = items.map(item => ({
-        purchase_order_id: order.id,
+        purchase_order_id: orderId,
         raw_name: item.raw_name,
         raw_quantity: item.raw_quantity,
         raw_unit_price: item.raw_unit_price

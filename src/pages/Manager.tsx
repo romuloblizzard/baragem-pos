@@ -1818,6 +1818,10 @@ function Purchases() {
   const [editingOrder, setEditingOrder] = useState<any>(null);
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<any>(null);
+
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [productCreationIndex, setProductCreationIndex] = useState<number | null>(null);
+
   const [reconcileItems, setReconcileItems] = useState<any[]>([]);
   const [newOrderItems, setNewOrderItems] = useState<any[]>([{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
 
@@ -1876,6 +1880,38 @@ function Purchases() {
       loadData();
     } catch (err: any) {
       alert('Erro ao salvar fornecedor: ' + err.message);
+    }
+  };
+
+  const handleSaveQuickProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    try {
+      const newProduct = await api.saveProduct({
+        name: formData.get('name'),
+        unit: formData.get('unit'),
+        type: 'simple',
+        category_id: null,
+        stock: 0,
+        cost_price: 0,
+        sell_price: parseFloat(formData.get('sell_price') as string) || 0,
+        minimum_stock: 0
+      });
+
+      // Update local products list
+      await loadData();
+
+      // Link the new product to the item being reconciled
+      if (productCreationIndex !== null) {
+        const newItems = [...reconcileItems];
+        newItems[productCreationIndex].product_id = newProduct.id;
+        setReconcileItems(newItems);
+      }
+
+      setIsProductModalOpen(false);
+      setProductCreationIndex(null);
+    } catch (err: any) {
+      alert('Erro ao criar produto: ' + err.message);
     }
   };
 
@@ -2066,7 +2102,18 @@ function Purchases() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 items-end">
                 <div>
-                  <label className="block text-sm text-emerald-400 mb-1">Produto no Sistema</label>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-sm text-emerald-400">Produto no Sistema</label>
+                    <button
+                      onClick={() => {
+                        setProductCreationIndex(index);
+                        setIsProductModalOpen(true);
+                      }}
+                      className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+                    >
+                      + Novo
+                    </button>
+                  </div>
                   <select
                     value={item.product_id}
                     onChange={(e) => {
@@ -2275,6 +2322,53 @@ function Purchases() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isProductModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">Cadastrar Produto Rápido</h3>
+              <button
+                onClick={() => { setIsProductModalOpen(false); setProductCreationIndex(null); }}
+                className="text-slate-400 hover:text-white"
+              ><XCircle size={24} /></button>
+            </div>
+
+            <form onSubmit={handleSaveQuickProduct} className="space-y-4">
+              <p className="text-sm text-slate-400">Este atalho cria um produto <strong>simples</strong> e sem categoria para facilitar a entrada. Você pode editá-lo depois no cadastro completo.</p>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Nome do Produto</label>
+                <input name="name" defaultValue={productCreationIndex !== null && reconcileItems[productCreationIndex] ? reconcileItems[productCreationIndex].raw_name : ''} required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Unidade</label>
+                  <select name="unit" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm">
+                    <option value="un">Unidade (un)</option>
+                    <option value="kg">Quilograma (kg)</option>
+                    <option value="g">Grama (g)</option>
+                    <option value="l">Litro (l)</option>
+                    <option value="ml">Mililitro (ml)</option>
+                    <option value="caixa">Caixa</option>
+                    <option value="pct">Pacote</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Preço de Venda (R$)</label>
+                  <input type="number" step="0.01" name="sell_price" defaultValue="0" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4 mt-6 border-t border-slate-700 gap-2">
+                <button type="button" onClick={() => setIsProductModalOpen(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
+                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-bold">Criar e Vincular</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
