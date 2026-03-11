@@ -1816,6 +1816,8 @@ function Purchases() {
 
   const [view, setView] = useState<'list' | 'new_order' | 'reconcile'>('list');
   const [editingOrder, setEditingOrder] = useState<any>(null);
+  const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<any>(null);
   const [reconcileItems, setReconcileItems] = useState<any[]>([]);
   const [newOrderItems, setNewOrderItems] = useState<any[]>([{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
 
@@ -1850,8 +1852,37 @@ function Purchases() {
       setView('list');
       setNewOrderItems([{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
       loadData();
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao criar pedido: ' + (err.message || 'Erro desconhecido'));
+    }
+  };
+
+  const handleSaveSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    try {
+      await api.saveSupplier({
+        id: editingSupplier?.id,
+        name: formData.get('name') as string,
+        document: formData.get('document') as string,
+        phone: formData.get('phone') as string,
+      });
+      setIsSupplierModalOpen(false);
+      setEditingSupplier(null);
+      loadData();
+    } catch (err: any) {
+      alert('Erro ao salvar fornecedor: ' + err.message);
+    }
+  };
+
+  const handleDeleteSupplier = async (id: number) => {
+    if (!confirm('Deseja realmente excluir este fornecedor?')) return;
+    try {
+      await api.deleteSupplier(id);
+      loadData();
     } catch (err) {
-      alert('Erro ao criar pedido');
+      alert('Não é possível excluir fornecedor logado a pedidos.');
     }
   };
 
@@ -2030,14 +2061,22 @@ function Purchases() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-4">
         <h2 className="text-2xl font-bold">Pedidos de Compra</h2>
-        <button
-          onClick={() => setView('new_order')}
-          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"
-        >
-          <Plus size={18} /> Novo Pedido
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setIsSupplierModalOpen(true)}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
+          >
+            <Users size={18} /> Fornecedores
+          </button>
+          <button
+            onClick={() => setView('new_order')}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"
+          >
+            <Plus size={18} /> Novo Pedido
+          </button>
+        </div>
       </div>
 
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden max-w-full overflow-x-auto">
@@ -2084,6 +2123,72 @@ function Purchases() {
           </tbody>
         </table>
       </div>
+
+      {isSupplierModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">Gerenciar Fornecedores</h3>
+              <button onClick={() => { setIsSupplierModalOpen(false); setEditingSupplier(null); }} className="text-slate-400 hover:text-white"><XCircle size={24} /></button>
+            </div>
+
+            <form onSubmit={handleSaveSupplier} className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl mb-6 space-y-4">
+              <h4 className="font-bold text-sm text-blue-400">{editingSupplier ? 'Editar Fornecedor' : 'Novo Fornecedor'}</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Nome</label>
+                  <input name="name" defaultValue={editingSupplier?.name} required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">CNPJ/CPF</label>
+                  <input name="document" defaultValue={editingSupplier?.document} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Telefone</label>
+                  <input name="phone" defaultValue={editingSupplier?.phone} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                {editingSupplier && (
+                  <button type="button" onClick={() => setEditingSupplier(null)} className="text-slate-400 text-sm px-3 hover:text-white">Cancelar</button>
+                )}
+                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-bold">
+                  {editingSupplier ? 'Atualizar' : 'Adicionar'}
+                </button>
+              </div>
+            </form>
+
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-800/50 text-slate-400 font-medium">
+                  <tr>
+                    <th className="px-4 py-2 rounded-tl-lg">Nome</th>
+                    <th className="px-4 py-2">Documento</th>
+                    <th className="px-4 py-2">Telefone</th>
+                    <th className="px-4 py-2 text-right rounded-tr-lg">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  {suppliers.map(s => (
+                    <tr key={s.id} className="hover:bg-slate-800/30">
+                      <td className="px-4 py-3 text-slate-200 font-medium">{s.name}</td>
+                      <td className="px-4 py-3 text-slate-400">{s.document || '-'}</td>
+                      <td className="px-4 py-3 text-slate-400">{s.phone || '-'}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => setEditingSupplier(s)} className="text-blue-400 p-1 hover:bg-blue-500/10 rounded"><Edit size={14} /></button>
+                        <button onClick={() => handleDeleteSupplier(s.id)} className="text-red-400 p-1 hover:bg-red-500/10 rounded ml-1"><Trash2 size={14} /></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {suppliers.length === 0 && (
+                    <tr><td colSpan={4} className="text-center py-4 text-slate-500 italic">Nenhum fornecedor cadastrado.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
