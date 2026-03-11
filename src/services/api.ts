@@ -67,7 +67,12 @@ export const api = {
     return formattedProducts;
   },
   saveProduct: async (product: any) => {
-    const { ingredients, category_name, child_product_ids, ...productData } = product;
+    const { ingredients, category_name, child_product_ids, observation, ...productData } = product;
+
+    // In case we want to explicitly save observation into productData
+    if (observation !== undefined) {
+      productData.observation = observation;
+    }
 
     let productId = product.id;
 
@@ -124,6 +129,11 @@ export const api = {
       }
     }
     return { id: productId };
+  },
+  deleteProduct: async (id: number) => {
+    const { error } = await supabase.from('products').update({ active: false }).eq('id', id);
+    if (error) throw error;
+    return { success: true };
   },
 
   // Customers

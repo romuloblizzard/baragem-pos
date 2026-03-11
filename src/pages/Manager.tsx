@@ -876,6 +876,7 @@ function Products() {
       id: editingProduct?.id,
       name: formData.get('name'),
       image_url: formData.get('image_url'),
+      observation: formData.get('observation'),
       category_id: parseInt(formData.get('category_id') as string),
       active: true,
       type: productType,
@@ -918,6 +919,16 @@ function Products() {
     } catch (err) {
       console.error(err);
       alert('Erro ao salvar produto');
+    }
+  };
+
+  const handleDeleteProduct = async (id: number) => {
+    if (!confirm('Deseja realmente remover este produto? (Isso não apagará do histórico de vendas)')) return;
+    try {
+      await api.deleteProduct(id);
+      loadProducts();
+    } catch (err) {
+      alert('Não foi possível excluir o produto.');
     }
   };
 
@@ -1038,6 +1049,13 @@ function Products() {
                     >
                       <Edit size={16} />
                     </button>
+                    <button
+                      onClick={() => handleDeleteProduct(product.id)}
+                      className="text-red-400 hover:text-red-300 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
+                      title="Excluir Produto"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </td>
                 </tr>
                 {/* Render Variations */}
@@ -1072,6 +1090,13 @@ function Products() {
                         className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
                       >
                         <Edit size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProduct(variation.id)}
+                        className="text-red-400 hover:text-red-300 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Excluir Variação"
+                      >
+                        <Trash2 size={16} />
                       </button>
                     </td>
                   </tr>
@@ -1142,6 +1167,11 @@ function Products() {
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">URL da Imagem</label>
                 <input name="image_url" defaultValue={editingProduct?.image_url} placeholder="https://..." className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Observação</label>
+                <textarea name="observation" defaultValue={editingProduct?.observation} rows={2} placeholder="Detalhes opcionais do produto..." className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none resize-y" />
               </div>
 
               {productType !== 'variable' && (
