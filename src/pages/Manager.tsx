@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
-  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users
+  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart
 } from 'lucide-react';
 
 export default function Manager() {
@@ -54,6 +54,7 @@ export default function Manager() {
             { id: 'products', label: 'Produtos', icon: ShoppingBag },
             { id: 'categories', label: 'Categorias', icon: List },
             { id: 'stock', label: 'Estoque', icon: Package },
+            { id: 'purchases', label: 'Compras', icon: ShoppingCart },
             { id: 'cashier', label: 'Caixa', icon: DollarSign },
             { id: 'settings', label: 'Configurações', icon: SettingsIcon },
           ].map((tab) => (
@@ -79,6 +80,7 @@ export default function Manager() {
         {activeTab === 'products' && <Products />}
         {activeTab === 'categories' && <Categories />}
         {activeTab === 'stock' && <Stock />}
+        {activeTab === 'purchases' && <Purchases />}
         {activeTab === 'cashier' && <Cashier stats={stats} />}
         {activeTab === 'settings' && <Settings />}
       </main>
@@ -842,6 +844,8 @@ function Products() {
   const [categories, setCategories] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [historyProduct, setHistoryProduct] = useState<any>(null);
+  const [purchaseHistory, setPurchaseHistory] = useState<any[]>([]);
 
   // Form State
   const [productType, setProductType] = useState('simple');
@@ -960,8 +964,18 @@ function Products() {
     setChildProducts(childProducts.filter((_, i) => i !== index));
   };
 
+  const loadHistory = async (product: any) => {
+    try {
+      const hist = await api.getProductPurchaseHistory(product.id);
+      setPurchaseHistory(hist);
+      setHistoryProduct(product);
+    } catch (err) {
+      alert('Erro ao carregar histórico');
+    }
+  };
+
   // Helper to get simple products for ingredients selection
-  const simpleProducts = products.filter(p => p.type === 'simple');
+  const simpleProducts = products.filter(p => p.type === 'simple' && p.id !== editingProduct?.id && !p.parent_id);
 
   // Helper to get parent products for variations (if we were implementing that here, but for now we just create the parent)
 
@@ -1043,6 +1057,13 @@ function Products() {
                         <Plus size={16} />
                       </button>
                     )}
+                    <button
+                      onClick={() => loadHistory(product)}
+                      className="text-amber-400 hover:text-amber-300 p-2 hover:bg-amber-500/10 rounded-lg transition-colors"
+                      title="Histórico de Compras"
+                    >
+                      <ClipboardList size={16} />
+                    </button>
                     <button
                       onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
                       className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
@@ -1295,6 +1316,51 @@ function Products() {
                 <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium">Salvar</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {historyProduct && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4 shrink-0">
+              <h3 className="text-xl font-bold">Histórico: {historyProduct.name}</h3>
+              <button onClick={() => setHistoryProduct(null)} className="text-slate-400 hover:text-white"><XCircle size={24} /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 pr-2">
+              {purchaseHistory.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 italic">Nenhum registro de compra (conciliado) encontrado para este produto.</div>
+              ) : (
+                <div className="space-y-4">
+                  {purchaseHistory.map((hist, idx) => (
+                    <div key={idx} className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl flex flex-col gap-2">
+                      <div className="flex justify-between items-start">
+                        <span className="font-bold text-slate-200">{new Date(hist.date).toLocaleDateString()}</span>
+                        <span className="text-emerald-400 font-bold">R$ {hist.unit_cost?.toFixed(2)} / un</span>
+                      </div>
+                      <div className="text-sm text-slate-400 grid grid-cols-2 gap-2 mt-2">
+                        <div>
+                          <span className="block text-xs uppercase text-slate-500">Fornecedor</span>
+                          {hist.supplier_name}
+                        </div>
+                        <div>
+                          <span className="block text-xs uppercase text-slate-500">Nota Fiscal</span>
+                          {hist.invoice_number || '-'}
+                        </div>
+                        <div>
+                          <span className="block text-xs uppercase text-slate-500">Qtd Comprada (reconciliada)</span>
+                          {hist.quantity}
+                        </div>
+                        <div>
+                          <span className="block text-xs uppercase text-slate-500">Nome na Nota</span>
+                          {hist.raw_name}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1743,4 +1809,281 @@ function Settings() {
   );
 }
 
+function Purchases() {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]); // To map to
 
+  const [view, setView] = useState<'list' | 'new_order' | 'reconcile'>('list');
+  const [editingOrder, setEditingOrder] = useState<any>(null);
+  const [reconcileItems, setReconcileItems] = useState<any[]>([]);
+  const [newOrderItems, setNewOrderItems] = useState<any[]>([{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const p = await api.getProducts();
+      setProducts(p.filter(prod => prod.type === 'simple')); // Generally we buy simple products
+      const s = await api.getSuppliers();
+      setSuppliers(s);
+      const o = await api.getPurchaseOrders();
+      setOrders(o);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCreateOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const data = {
+      supplier_id: formData.get('supplier_id') ? parseInt(formData.get('supplier_id') as string) : null,
+      invoice_number: formData.get('invoice_number'),
+      total_amount: parseFloat(formData.get('total_amount') as string),
+      notes: formData.get('notes')
+    };
+    try {
+      await api.savePurchaseOrder(data, newOrderItems);
+      setView('list');
+      setNewOrderItems([{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
+      loadData();
+    } catch (err) {
+      alert('Erro ao criar pedido');
+    }
+  };
+
+  const startReconciliation = (order: any) => {
+    setEditingOrder(order);
+    // Prepare items for reconciliation state
+    setReconcileItems(order.items.map((item: any) => ({
+      ...item,
+      product_id: '',
+      reconciled_quantity: item.raw_quantity,
+      reconciled_unit_cost: item.raw_unit_price
+    })));
+    setView('reconcile');
+  };
+
+  const handleReconcile = async () => {
+    if (!confirm('Confirmar conciliação? Isso atualizará o estoque e preços de custo.')) return;
+    try {
+      await api.reconcilePurchaseOrder(editingOrder.id, reconcileItems);
+      setView('list');
+      setEditingOrder(null);
+      loadData();
+    } catch (err) {
+      alert('Erro ao conciliar pedido');
+    }
+  };
+
+  if (view === 'new_order') {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">Novo Pedido de Compra</h2>
+          <button onClick={() => setView('list')} className="text-slate-400 hover:text-white">Voltar</button>
+        </div>
+        <form onSubmit={handleCreateOrder} className="bg-slate-900 border border-slate-700 p-6 rounded-2xl space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Fornecedor</label>
+              <select name="supplier_id" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2">
+                <option value="">Sem fornecedor / Avulso</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Nota Fiscal N.º</label>
+              <input name="invoice_number" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Valor Total (R$)</label>
+              <input type="number" step="0.01" name="total_amount" required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Observações</label>
+              <input name="notes" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-lg font-bold mb-2">Itens da Nota (Cru)</h3>
+            <p className="text-xs text-slate-400 mb-4">Adicione os itens conforme vieram escritos na nota fiscal.</p>
+            {newOrderItems.map((item, index) => (
+              <div key={index} className="flex gap-2 mb-2 items-center">
+                <input
+                  placeholder="Nome exato do item na nota" required
+                  value={item.raw_name}
+                  onChange={(e) => {
+                    const newItems = [...newOrderItems];
+                    newItems[index].raw_name = e.target.value;
+                    setNewOrderItems(newItems);
+                  }}
+                  className="flex-1 bg-slate-800 border-slate-700 rounded-lg p-2" />
+                <input
+                  type="number" step="0.001" placeholder="Qtd" required
+                  value={item.raw_quantity}
+                  onChange={(e) => {
+                    const newItems = [...newOrderItems];
+                    newItems[index].raw_quantity = parseFloat(e.target.value) || 0;
+                    setNewOrderItems(newItems);
+                  }}
+                  className="w-24 bg-slate-800 border-slate-700 rounded-lg p-2" />
+                <input
+                  type="number" step="0.01" placeholder="Prec. Un." required
+                  value={item.raw_unit_price}
+                  onChange={(e) => {
+                    const newItems = [...newOrderItems];
+                    newItems[index].raw_unit_price = parseFloat(e.target.value) || 0;
+                    setNewOrderItems(newItems);
+                  }}
+                  className="w-28 bg-slate-800 border-slate-700 rounded-lg p-2" />
+                <button type="button" onClick={() => setNewOrderItems(newOrderItems.filter((_, i) => i !== index))} className="text-red-400 p-2"><Trash2 size={16} /></button>
+              </div>
+            ))}
+            <button type="button" onClick={() => setNewOrderItems([...newOrderItems, { raw_name: '', raw_quantity: 1, raw_unit_price: 0 }])} className="text-blue-400 text-sm mt-2">+ Adicionar Linha</button>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-slate-700">
+            <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold">Salvar Pedido</button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  if (view === 'reconcile' && editingOrder) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">Conciliar Pedido #{editingOrder.id}</h2>
+          <button onClick={() => setView('list')} className="text-slate-400 hover:text-white">Cancelar</button>
+        </div>
+        <div className="bg-slate-900 border border-slate-700 p-6 rounded-2xl space-y-4">
+          <p className="text-sm text-slate-400 mb-4">Mapeie cada item da nota para um produto do sistema e informe qual foi a quantidade equivalente que será dada de entrada no estoque.</p>
+
+          {reconcileItems.map((item, index) => (
+            <div key={item.id} className="border border-slate-800 p-4 rounded-xl mb-4 bg-slate-950/50">
+              <div className="grid grid-cols-2 gap-4 mb-2">
+                <div>
+                  <label className="block text-xs text-slate-500 uppercase">Item na Nota</label>
+                  <p className="font-bold">{item.raw_name}</p>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 uppercase">Veio na Nota</label>
+                  <p>{item.raw_quantity} un x R$ {item.raw_unit_price} = R$ {(item.raw_quantity * item.raw_unit_price).toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 items-end">
+                <div>
+                  <label className="block text-sm text-emerald-400 mb-1">Produto no Sistema</label>
+                  <select
+                    value={item.product_id}
+                    onChange={(e) => {
+                      const newItems = [...reconcileItems];
+                      newItems[index].product_id = parseInt(e.target.value) || '';
+                      setReconcileItems(newItems);
+                    }}
+                    className="w-full bg-slate-800 border-slate-700 rounded-lg p-2">
+                    <option value="">(Não vincular / Pular)</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-emerald-400 mb-1">Efetivar Qtd de Estoque</label>
+                  <input
+                    type="number" step="0.001"
+                    value={item.reconciled_quantity}
+                    onChange={(e) => {
+                      const newItems = [...reconcileItems];
+                      newItems[index].reconciled_quantity = parseFloat(e.target.value) || 0;
+                      if (newItems[index].reconciled_quantity > 0) {
+                        newItems[index].reconciled_unit_cost = (item.raw_quantity * item.raw_unit_price) / newItems[index].reconciled_quantity;
+                      }
+                      setReconcileItems(newItems);
+                    }}
+                    className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+                </div>
+                <div>
+                  <label className="block text-sm text-emerald-400 mb-1">Custo Novo (R$)</label>
+                  <input
+                    type="number" step="0.01" readOnly disabled
+                    value={item.reconciled_unit_cost?.toFixed(2) || '0.00'}
+                    className="w-full bg-slate-800/50 border-slate-800 rounded-lg p-2 text-slate-400 text-center" />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div className="flex justify-end pt-4">
+            <button onClick={handleReconcile} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2">
+              <CheckCircle size={20} /> Salvar e Efetivar Estoque
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Pedidos de Compra</h2>
+        <button
+          onClick={() => setView('new_order')}
+          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"
+        >
+          <Plus size={18} /> Novo Pedido
+        </button>
+      </div>
+
+      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden max-w-full overflow-x-auto">
+        <table className="w-full text-left text-sm min-w-[800px]">
+          <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
+            <tr>
+              <th className="px-6 py-4">Data</th>
+              <th className="px-6 py-4">Fornecedor</th>
+              <th className="px-6 py-4">NF</th>
+              <th className="px-6 py-4">Total</th>
+              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {orders.map(order => (
+              <tr key={order.id} className="hover:bg-slate-800/30">
+                <td className="px-6 py-4">{new Date(order.created_at).toLocaleDateString()}</td>
+                <td className="px-6 py-4 font-bold text-slate-200">{order.supplier_name}</td>
+                <td className="px-6 py-4 text-slate-400">{order.invoice_number}</td>
+                <td className="px-6 py-4 text-emerald-400">R$ {order.total_amount?.toFixed(2)}</td>
+                <td className="px-6 py-4">
+                  {order.status === 'pending' ? (
+                    <span className="px-2 py-1 text-xs font-bold rounded bg-orange-500/20 text-orange-400 uppercase">Pendente</span>
+                  ) : (
+                    <span className="px-2 py-1 text-xs font-bold rounded bg-emerald-500/20 text-emerald-400 uppercase">Conciliado</span>
+                  )}
+                </td>
+                <td className="px-6 py-4 text-right flex justify-end gap-2">
+                  {order.status === 'pending' && (
+                    <button
+                      onClick={() => startReconciliation(order)}
+                      className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-1 rounded-lg transition-colors flex items-center gap-1 font-medium"
+                    >
+                      <CheckCircle size={14} /> Conciliar
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {orders.length === 0 && (
+              <tr><td colSpan={6} className="text-center py-8 text-slate-500 italic">Nenhum pedido de compra registrado.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

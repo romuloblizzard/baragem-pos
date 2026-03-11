@@ -487,5 +487,186 @@ export const api = {
   deleteEmployee: async (id: string) => {
     const { error } = await supabase.from('employees').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  // Suppliers
+  getSuppliers: async () => {
+    const { data, error } = await supabase.from('suppliers').select('*').order('name');
+    if (error) throw error;
+    return data;
+  },
+  saveSupplier: async (supplier: any) => {
+    if (supplier.id) {
+      const { data, error } = await supabase.from('suppliers').update(supplier).eq('id', supplier.id).select().single();
+      if (error) throw error;
+      return data;
+    } else {
+      const { data, error } = await supabase.from('suppliers').insert(supplier).select().single();
+      if (error) throw error;
+      return data;
+    }
+  },
+  deleteSupplier: async (id: number) => {
+    const { error } = await supabase.from('suppliers').delete().eq('id', id);
+    if (error) throw error;
+    return { success: true };
+  },
+
+  // Purchase Orders
+  getPurchaseOrders: async () => {
+    const { data: orders, error } = await supabase
+      .from('purchase_orders')
+      .select(`
+        *,
+        suppliers (name)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    if (!orders || orders.length === 0) return [];
+
+    const orderIds = orders.map(o => o.id);
+    const { data: items, error: itemsError } = await supabase
+      .from('purchase_order_items')
+      .select(`*, products (name, unit)`)
+      .in('purchase_order_id', orderIds);
+
+    if (itemsError) throw itemsError;
+
+    return orders.map((order: any) => ({
+      ...order,
+      supplier_name: order.suppliers?.name || 'Fornecedor avulso',
+      items: items.filter(i => i.purchase_order_id === order.id).map((i: any) => ({
+        ...i,
+        system_product_name: i.products?.name,
+        system_product_unit: i.products?.unit
+      }))
+    }));
+  },
+  savePurchaseOrder: async (orderData: any, items: any[]) => {
+    // Insert order
+    const { data: order, error: orderError } = await supabase
+      .from('purchase_orders')
+      .insert({
+        supplier_id: orderData.supplier_id || null,
+        invoice_number: orderData.invoice_number,
+        total_amount: orderData.total_amount,
+        notes: orderData.notes,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (orderError) throw orderError;
+
+    // Insert items
+    if (items && items.length > 0) {
+      const insertItems = items.map(item => ({
+        purchase_order_id: order.id,
+        raw_name: item.raw_name,
+        raw_quantity: item.raw_quantity,
+        raw_unit_price: item.raw_unit_price
+      }));
+      const { error: itemsError } = await supabase.from('purchase_order_items').insert(insertItems);
+      if (itemsError) throw itemsError;
+    }
+
+    return order;
+  },
+  reconcilePurchaseOrder: async (orderId: number, reconciledItems: any[]) => {
+    // 1. Update purchase_order_items with reconciliation data
+    for (const item of reconciledItems) {
+      if (!item.product_id) continue;
+
+      const { error: itemError } = await supabase
+        .from('purchase_order_items')
+        .update({
+          product_id: item.product_id,
+          reconciled_quantity: item.reconciled_quantity,
+          reconciled_unit_cost: item.reconciled_unit_cost
+        })
+        .eq('id', item.id);
+
+      if (itemError) throw itemError;
+
+      // 2. Fetch current product
+      const { data: product, error: prodError } = await supabase
+        .from('products')
+        .select('stock, cost_price')
+        .eq('id', item.product_id)
+        .single();
+
+      if (prodError) throw prodError;
+
+      // 3. Calculate new weighted average cost and new stock
+      const currentStock = parseFloat(product.stock) || 0;
+      const currentCost = parseFloat(product.cost_price) || 0;
+
+      const addedStock = parseFloat(item.reconciled_quantity) || 0;
+      const addedCost = parseFloat(item.reconciled_unit_cost) || 0;
+      const totalNewStock = currentStock + addedStock;
+
+      let newCost = currentCost;
+      if (totalNewStock > 0) {
+        // Weighted average cost formula
+        // (CurrentVal + AddedVal) / TotalAmt
+        const currentVal = currentStock * currentCost;
+        const addedVal = addedStock * addedCost;
+        newCost = (currentVal + addedVal) / totalNewStock;
+      } else if (addedStock > 0) {
+        newCost = addedCost;
+      }
+
+      // 4. Update product
+      const { error: updateProdError } = await supabase
+        .from('products')
+        .update({
+          stock: totalNewStock,
+          cost_price: newCost
+        })
+        .eq('id', item.product_id);
+
+      if (updateProdError) throw updateProdError;
+    }
+
+    // 5. Update purchase order status to reconciled
+    const { error: orderError } = await supabase
+      .from('purchase_orders')
+      .update({
+        status: 'reconciled',
+        reconciled_at: new Date().toISOString()
+      })
+      .eq('id', orderId);
+
+    if (orderError) throw orderError;
+
+    return { success: true };
+  },
+
+  getProductPurchaseHistory: async (productId: number) => {
+    const { data, error } = await supabase
+      .from('purchase_order_items')
+      .select(`
+        *,
+        purchase_orders (
+          created_at,
+          invoice_number,
+          suppliers (name)
+        )
+      `)
+      .eq('product_id', productId)
+      .order('id', { ascending: false });
+
+    if (error) throw error;
+
+    return data.map((item: any) => ({
+      date: item.purchase_orders?.created_at,
+      supplier_name: item.purchase_orders?.suppliers?.name || 'Fornecedor avulso',
+      invoice_number: item.purchase_orders?.invoice_number,
+      quantity: item.reconciled_quantity,
+      unit_cost: item.reconciled_unit_cost,
+      raw_name: item.raw_name
+    }));
   }
 };
