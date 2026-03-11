@@ -1996,8 +1996,8 @@ function Purchases() {
               <input name="invoice_number" defaultValue={editingOrder?.invoice_number} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Valor do Produto (R$)</label>
-              <input type="number" step="0.01" name="total_amount" defaultValue={editingOrder?.total_amount} required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+              <label className="block text-sm text-slate-400 mb-1">Valor Total dos Produtos</label>
+              <input type="number" step="0.01" name="total_amount" value={itemsTotal.toFixed(2)} readOnly className="w-full bg-slate-800/50 border-slate-700 rounded-lg p-2 text-slate-400 cursor-not-allowed" />
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Valor do Frete (R$)</label>
@@ -2053,13 +2053,10 @@ function Purchases() {
             <div className="flex justify-between items-center mt-2">
               <button type="button" onClick={() => setNewOrderItems([...newOrderItems, { raw_name: '', raw_quantity: 1, raw_unit_price: 0 }])} className="text-blue-400 text-sm font-bold">+ Adicionar Linha</button>
               <div className="text-sm font-bold text-slate-300 flex items-center gap-2">
-                <span>Total dos Itens: </span>
-                <span className={Math.abs(itemsTotal - parseFloat((document.querySelector('input[name="total_amount"]') as HTMLInputElement)?.value || '0')) > 0.1 ? 'text-orange-400' : 'text-emerald-400'}>
+                <span>Soma Parcial: </span>
+                <span className="text-emerald-400">
                   R$ {itemsTotal.toFixed(2)}
                 </span>
-                {Math.abs(itemsTotal - parseFloat((document.querySelector('input[name="total_amount"]') as HTMLInputElement)?.value || '0')) > 0.1 && (
-                  <span className="text-xs text-orange-400 font-normal ml-2" title="O valor dos itens não bate com o valor do produto na nota!">(Valores divergem)</span>
-                )}
               </div>
             </div>
           </div>
