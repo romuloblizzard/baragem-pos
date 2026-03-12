@@ -48,7 +48,7 @@ export const api = {
         .from('product_ingredients')
         .select(`
           *,
-          products (name)
+          products (name, cost_price, stock, unit)
         `)
         .in('product_id', compositionIds);
 
@@ -57,8 +57,26 @@ export const api = {
           if (p.type === 'composition') {
             p.ingredients = ingredientsData.filter((i: any) => i.product_id === p.id).map((i: any) => ({
               ...i,
-              ingredient_name: i.products?.name
+              ingredient_name: i.products?.name,
+              ingredient_cost: i.products?.cost_price || 0,
+              ingredient_stock: i.products?.stock || 0,
+              ingredient_unit: i.products?.unit || 'un'
             }));
+
+            // Dynamic cost: sum of (ingredient cost × quantity used)
+            if (p.ingredients.length > 0) {
+              p.cost_price = p.ingredients.reduce((sum: number, ing: any) => {
+                return sum + ((ing.ingredient_cost || 0) * (ing.quantity || 0));
+              }, 0);
+
+              // Dynamic stock: min of (ingredient stock / quantity needed), floored
+              p.stock = Math.floor(Math.min(
+                ...p.ingredients.map((ing: any) => {
+                  if (!ing.quantity || ing.quantity <= 0) return 0;
+                  return (ing.ingredient_stock || 0) / ing.quantity;
+                })
+              ));
+            }
           }
         }
       }

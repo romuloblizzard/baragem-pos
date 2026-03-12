@@ -1039,13 +1039,22 @@ function Products() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-emerald-400 font-medium">
-                    {product.type === 'variable' ? '-' : `R$ ${product.price?.toFixed(2)}`}
+                    {product.type === 'variable' ? '-' : (
+                      <div className="flex flex-col">
+                        <span>R$ {product.price?.toFixed(2)}</span>
+                        {product.type === 'composition' && product.cost_price > 0 && (
+                          <span className="text-xs text-slate-500">Custo: R$ {product.cost_price?.toFixed(2)}</span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     {product.type === 'variable' ? (
                       <span className="text-slate-500">-</span>
                     ) : product.type === 'composition' ? (
-                      <span className="text-slate-500">Calc.</span>
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock <= 3 ? 'bg-red-500/20 text-red-400' : 'bg-orange-500/20 text-orange-400'}`}>
+                        {product.stock} disp.
+                      </span>
                     ) : product.category_name === 'Garrafa' ? (
                       <div className="flex flex-col gap-1">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock_bottles <= 2 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>

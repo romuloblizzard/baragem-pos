@@ -1,26 +1,25 @@
+import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-async function testApiSave() {
-    const { api } = await import('./src/services/api');
-    try {
-        console.log('Logging in...');
-        await api.loginWithPin('123456', true);
+const supabase = createClient(process.env.VITE_SUPABASE_URL!, process.env.VITE_SUPABASE_ANON_KEY!);
 
-        console.log('Saving employee...');
-        const data = {
-            id: undefined,
-            name: 'Test via API Dynamic',
-            role: 'waiter',
-            pin: '334455',
-            active: true,
-        };
+async function check() {
+    await supabase.auth.signInWithPassword({ email: '123456@baragem.local', password: '123456' });
 
-        await api.saveEmployee(data);
-        console.log('Saved successfully');
-    } catch (error: any) {
-        console.error('Error detail:', error);
-    }
+    const { data, error } = await supabase.from('products').select('id, name, type, parent_id, active').order('name');
+    if (error) { console.error(error); return; }
+
+    console.log('All products:');
+    console.table(data);
+
+    const children = data?.filter(p => p.parent_id);
+    console.log('\nProducts with parent_id (variations):');
+    console.table(children);
+
+    const simples = data?.filter(p => p.type === 'simple' && p.active);
+    console.log('\nSimple + Active (should appear as ingredients):');
+    console.table(simples);
 }
 
-testApiSave();
+check();
