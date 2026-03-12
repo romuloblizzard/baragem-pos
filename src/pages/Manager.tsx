@@ -902,9 +902,12 @@ function Products() {
     if (productType === 'simple') {
       data.stock = parseFloat(formData.get('stock') as string);
       data.unit = formData.get('unit');
+      data.purchase_unit = formData.get('purchase_unit') || null;
+      data.unit_conversion_factor = parseFloat(formData.get('unit_conversion_factor') as string) || 1;
     } else {
       data.stock = 0; // Default stock for variable/composition
       data.unit = 'un';
+      data.unit_conversion_factor = 1;
     }
 
     if (productType === 'composition') {
@@ -975,7 +978,7 @@ function Products() {
   };
 
   // Helper to get simple products for ingredients selection
-  const simpleProducts = products.filter(p => p.type === 'simple' && p.id !== editingProduct?.id && !p.parent_id);
+  const simpleProducts = products.filter(p => p.type === 'simple' && p.id !== editingProduct?.id);
 
   // Helper to get parent products for variations (if we were implementing that here, but for now we just create the parent)
 
@@ -1226,7 +1229,18 @@ function Products() {
                           <option value="l">Litro (l)</option>
                           <option value="kg">Quilograma (kg)</option>
                           <option value="g">Grama (g)</option>
+                          <option value="dose">Dose</option>
                         </select>
+                      </div>
+                      <div className="col-span-2 grid grid-cols-2 gap-4 mt-2 p-3 bg-blue-900/10 border border-blue-900/30 rounded-xl">
+                        <div>
+                          <label className="block text-xs font-medium text-blue-400 mb-1">Unidade na Compra (Opcional Geralmente)</label>
+                          <input name="purchase_unit" defaultValue={editingProduct?.purchase_unit} placeholder="Ex: Garrafa, Caixa" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-blue-400 mb-1">Equivale a (Fator de Conversão)</label>
+                          <input name="unit_conversion_factor" type="number" step="0.001" defaultValue={editingProduct?.unit_conversion_factor || 1} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" title="Quantas unidades de venda vem em 1 unidade de compra? Ex: 1 Garrafa = 1000 ml" />
+                        </div>
                       </div>
                     </>
                   )}
@@ -2121,13 +2135,38 @@ function Purchases() {
                     value={item.product_id}
                     onChange={(e) => {
                       const newItems = [...reconcileItems];
-                      newItems[index].product_id = parseInt(e.target.value) || '';
+                      const newId = parseInt(e.target.value) || '';
+                      newItems[index].product_id = newId;
+
+                      const selectedProduct = products.find(p => p.id === newId);
+                      let newQty = item.raw_quantity || 0;
+                      if (selectedProduct && selectedProduct.unit_conversion_factor) {
+                        const factor = parseFloat(selectedProduct.unit_conversion_factor);
+                        if (factor > 0) newQty = newQty * factor;
+                      }
+
+                      newItems[index].reconciled_quantity = newQty;
+
+                      if (newQty > 0) {
+                        const totalItemsValue = reconcileItems.reduce((acc, i) => acc + (i.raw_quantity * i.raw_unit_price), 0);
+                        const freightAmount = parseFloat(editingOrder.freight_amount) || 0;
+                        const itemRawValue = item.raw_quantity * item.raw_unit_price;
+                        const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
+                        const freightShare = proportion * freightAmount;
+                        const totalItemCost = itemRawValue + freightShare;
+
+                        newItems[index].reconciled_unit_cost = totalItemCost / newQty;
+                      }
+
                       setReconcileItems(newItems);
                     }}
                     className="w-full bg-slate-800 border-slate-700 rounded-lg p-2">
                     <option value="">(Não vincular / Pular)</option>
                     {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
                   </select>
+                  {item.product_id && products.find(p => p.id === item.product_id)?.unit_conversion_factor > 1 && (
+                    <p className="text-xs text-blue-400 mt-1">Conversão Automática: x{products.find(p => p.id === item.product_id)?.unit_conversion_factor}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm text-emerald-400 mb-1">Efetivar Qtd de Estoque</label>
