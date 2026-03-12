@@ -123,7 +123,9 @@ export const api = {
         }
       }
     } else {
-      const { data, error } = await supabase.from('products').insert(productData).select().single();
+      // Strip undefined/null id so the DB can auto-generate it
+      const { id, ...newProductData } = productData;
+      const { data, error } = await supabase.from('products').insert(newProductData).select().single();
       if (error) throw error;
       productId = data.id;
 
