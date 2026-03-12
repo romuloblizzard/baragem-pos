@@ -85,12 +85,18 @@ export const api = {
     return formattedProducts;
   },
   saveProduct: async (product: any) => {
-    const { ingredients, category_name, child_product_ids, observation, ...productData } = product;
+    const { ingredients, category_name, child_product_ids, observation, categories, ...productData } = product;
 
     // In case we want to explicitly save observation into productData
     if (observation !== undefined) {
       productData.observation = observation;
     }
+
+    // Remove any non-database fields that might have been added dynamically
+    delete productData.ingredient_cost;
+    delete productData.ingredient_stock;
+    delete productData.ingredient_unit;
+    delete productData.ingredient_name;
 
     let productId = product.id;
 

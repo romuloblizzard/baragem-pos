@@ -926,13 +926,14 @@ function Products() {
     }
 
     try {
+      console.log('Saving product data:', JSON.stringify(data, null, 2));
       await api.saveProduct(data);
       setIsModalOpen(false);
       setEditingProduct(null);
       loadProducts();
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao salvar produto');
+    } catch (err: any) {
+      console.error('Product save error:', err);
+      alert(`Erro ao salvar produto: ${err?.message || JSON.stringify(err)}`);
     }
   };
 
