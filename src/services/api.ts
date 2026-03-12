@@ -621,14 +621,17 @@ export const api = {
 
       if (itemError) throw itemError;
 
-      // 2. Fetch current product
+      // 2. Fetch current product with category
       const { data: product, error: prodError } = await supabase
         .from('products')
-        .select('stock, cost_price')
+        .select('stock, cost_price, stock_bottles, bottle_volume_ml, categories(name)')
         .eq('id', item.product_id)
         .single();
 
       if (prodError) throw prodError;
+
+      const categoryName = (product as any).categories?.name;
+      const isBottle = categoryName === 'Garrafa';
 
       // 3. Calculate new weighted average cost and new stock
       const currentStock = parseFloat(product.stock) || 0;
@@ -636,26 +639,55 @@ export const api = {
 
       const addedStock = parseFloat(item.reconciled_quantity) || 0;
       const addedCost = parseFloat(item.reconciled_unit_cost) || 0;
-      const totalNewStock = currentStock + addedStock;
 
-      let newCost = currentCost;
-      if (totalNewStock > 0) {
-        // Weighted average cost formula
-        // (CurrentVal + AddedVal) / TotalAmt
-        const currentVal = currentStock * currentCost;
-        const addedVal = addedStock * addedCost;
-        newCost = (currentVal + addedVal) / totalNewStock;
-      } else if (addedStock > 0) {
-        newCost = addedCost;
+      let updateData: any = {};
+
+      if (isBottle) {
+        // Garrafa: reconciled_quantity = garrafas inteiras
+        const bottleVolume = parseFloat(item.bottle_volume_ml) || parseFloat(product.bottle_volume_ml) || 0;
+        const addedMl = addedStock * bottleVolume;
+        const totalNewMl = currentStock + addedMl;
+        const currentBottles = parseFloat(product.stock_bottles) || 0;
+        const totalNewBottles = currentBottles + addedStock;
+
+        // Weighted average cost per ml
+        let newCost = currentCost;
+        if (totalNewMl > 0) {
+          const currentVal = currentStock * currentCost;
+          const addedVal = addedMl * (addedCost / (bottleVolume || 1)); // cost per ml
+          newCost = (currentVal + addedVal) / totalNewMl;
+        } else if (addedMl > 0) {
+          newCost = addedCost / (bottleVolume || 1);
+        }
+
+        updateData = {
+          stock: totalNewMl,
+          stock_bottles: totalNewBottles,
+          bottle_volume_ml: bottleVolume,
+          cost_price: newCost
+        };
+      } else {
+        // Produto normal
+        const totalNewStock = currentStock + addedStock;
+        let newCost = currentCost;
+        if (totalNewStock > 0) {
+          const currentVal = currentStock * currentCost;
+          const addedVal = addedStock * addedCost;
+          newCost = (currentVal + addedVal) / totalNewStock;
+        } else if (addedStock > 0) {
+          newCost = addedCost;
+        }
+
+        updateData = {
+          stock: totalNewStock,
+          cost_price: newCost
+        };
       }
 
       // 4. Update product
       const { error: updateProdError } = await supabase
         .from('products')
-        .update({
-          stock: totalNewStock,
-          cost_price: newCost
-        })
+        .update(updateData)
         .eq('id', item.product_id);
 
       if (updateProdError) throw updateProdError;

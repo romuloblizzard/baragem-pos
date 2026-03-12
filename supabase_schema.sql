@@ -27,6 +27,8 @@ CREATE TABLE products (
     cost_price DECIMAL(10,2) DEFAULT 0,
     stock DECIMAL(10,3) DEFAULT 0, -- DECIMAL for fractional units
     unit TEXT DEFAULT 'un',
+    purchase_unit TEXT,
+    unit_conversion_factor DECIMAL(10,3) DEFAULT 1,
     image_url TEXT,
     category_id BIGINT REFERENCES categories(id) ON DELETE SET NULL,
     active BOOLEAN DEFAULT true,

@@ -904,6 +904,13 @@ function Products() {
       data.unit = formData.get('unit');
       data.purchase_unit = formData.get('purchase_unit') || null;
       data.unit_conversion_factor = parseFloat(formData.get('unit_conversion_factor') as string) || 1;
+
+      // Garrafa: volume e estoque duplo
+      const selectedCat = categories.find(c => c.id === data.category_id);
+      if (selectedCat?.name === 'Garrafa') {
+        data.bottle_volume_ml = parseFloat(formData.get('bottle_volume_ml') as string) || 0;
+        data.stock_bottles = parseFloat(formData.get('stock_bottles') as string) || 0;
+      }
     } else {
       data.stock = 0; // Default stock for variable/composition
       data.unit = 'un';
@@ -1039,6 +1046,15 @@ function Products() {
                       <span className="text-slate-500">-</span>
                     ) : product.type === 'composition' ? (
                       <span className="text-slate-500">Calc.</span>
+                    ) : product.category_name === 'Garrafa' ? (
+                      <div className="flex flex-col gap-1">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock_bottles <= 2 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                          {product.stock_bottles || 0} garr.
+                        </span>
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock <= 500 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                          {product.stock} ml
+                        </span>
+                      </div>
                     ) : (
                       <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
                         }`}>
@@ -1255,6 +1271,23 @@ function Products() {
                   ))}
                 </select>
               </div>
+
+              {/* Bottle volume - shown when category is Garrafa */}
+              {categories.find(c => c.id === (editingProduct?.category_id || categories[0]?.id))?.name === 'Garrafa' && productType === 'simple' && (
+                <div className="p-3 bg-amber-900/10 border border-amber-900/30 rounded-xl space-y-3">
+                  <p className="text-xs text-amber-400 font-bold uppercase">🍾 Configuração de Garrafa</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-amber-400 mb-1">Volume da Garrafa (ml)</label>
+                      <input name="bottle_volume_ml" type="number" step="1" defaultValue={editingProduct?.bottle_volume_ml || 1000} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" placeholder="Ex: 750, 1000" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-amber-400 mb-1">Estoque em Garrafas</label>
+                      <input name="stock_bottles" type="number" step="0.001" defaultValue={editingProduct?.stock_bottles || 0} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Ingredients Section for Composition */}
               {productType === 'composition' && (
@@ -2169,7 +2202,7 @@ function Purchases() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm text-emerald-400 mb-1">Efetivar Qtd de Estoque</label>
+                  <label className="block text-sm text-emerald-400 mb-1">Efetivar Qtd (Garrafas/Un)</label>
                   <input
                     type="number" step="0.001"
                     value={item.reconciled_quantity}
@@ -2200,6 +2233,22 @@ function Purchases() {
                     className="w-full bg-slate-800/50 border-slate-800 rounded-lg p-2 text-slate-400 text-center" />
                 </div>
               </div>
+              {/* Bottle volume for Garrafa products */}
+              {item.product_id && products.find(p => p.id === item.product_id)?.category_name === 'Garrafa' && (
+                <div className="mt-3 p-3 bg-amber-900/10 border border-amber-900/30 rounded-xl">
+                  <label className="block text-xs font-bold text-amber-400 mb-1">🍾 Volume da Garrafa (ml)</label>
+                  <input
+                    type="number" step="1" placeholder="Ex: 750, 1000"
+                    value={item.bottle_volume_ml || products.find(p => p.id === item.product_id)?.bottle_volume_ml || ''}
+                    onChange={(e) => {
+                      const newItems = [...reconcileItems];
+                      newItems[index].bottle_volume_ml = parseFloat(e.target.value) || 0;
+                      setReconcileItems(newItems);
+                    }}
+                    className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm" />
+                  <p className="text-xs text-slate-500 mt-1">Informe o volume de cada garrafa para calcular o estoque em ml.</p>
+                </div>
+              )}
             </div>
           ))}
 
