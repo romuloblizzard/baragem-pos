@@ -479,7 +479,8 @@ export const api = {
       const { error } = await supabase.from('employees').update(employee).eq('id', employee.id);
       if (error) throw error;
     } else {
-      const { error } = await supabase.from('employees').insert([employee]);
+      const { id, ...newEmployee } = employee;
+      const { error } = await supabase.from('employees').insert([newEmployee]);
       if (error) throw error;
     }
   },
