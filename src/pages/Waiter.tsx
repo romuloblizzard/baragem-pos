@@ -168,14 +168,10 @@ export default function Waiter() {
       return;
     }
 
+    const currentCartQty = cart.find(item => item.id === product.id)?.quantity || 0;
+
     // Check stock for composition
     if (product.type === 'composition' && product.ingredients) {
-      // Calculate max stock based on ingredients
-      // Note: This logic should ideally be consistent with backend or pre-calculated.
-      // For now, we rely on the backend check, but we could add a frontend check if we had ingredient stocks.
-      // Since we fetch all products, we might have ingredient stocks if they are simple products.
-      // But `product.ingredients` only has IDs. We need to find the simple products in `products` array.
-
       let maxStock = Infinity;
       for (const ing of product.ingredients) {
         const ingProduct = products.find(p => p.id === ing.ingredient_id);
@@ -185,13 +181,25 @@ export default function Waiter() {
         }
       }
 
-      if (maxStock <= 0) {
+      if (currentCartQty + 1 > maxStock) {
         alert('Produto esgotado (ingredientes insuficientes)');
         return;
       }
-    } else if (product.type === 'simple' && product.stock <= 0) {
-      alert('Produto esgotado');
-      return;
+    } else if (product.type === 'simple') {
+      let available = product.stock;
+      if (product.category_name === 'Garrafa') {
+        // Only FULL bottles can be sold directly
+        available = Math.floor(product.stock);
+      }
+
+      if (currentCartQty + 1 > available) {
+        if (product.category_name === 'Garrafa' && available === 0 && product.stock > 0) {
+          alert(`Você tem apenas garrafa(s) aberta(s) de ${product.name}. Venda direta bloqueada.`);
+        } else {
+          alert('Quantidade indisponível no estoque!');
+        }
+        return;
+      }
     }
 
     setCart(prev => {
@@ -223,9 +231,11 @@ export default function Waiter() {
       await api.addOrderItems(currentOrder.id, itemsToInsert);
 
       setCart([]);
-      // Refresh order
+      // Refresh order and products
       const updated = await api.getOrder(pulseira);
       setCurrentOrder(updated);
+      const prods = await api.getProducts();
+      setProducts(prods);
       alert('Pedido enviado!');
     } catch (err) {
       alert('Erro ao enviar pedido');
