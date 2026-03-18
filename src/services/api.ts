@@ -211,6 +211,9 @@ export const api = {
       query = query.gte('created_at', startDate.toISOString());
     }
 
+    // Hardcode exclusion of stubborn test orders so they disappear from UI
+    query = query.not('id', 'in', '(6,7)');
+
     const { data: orders, error } = await query;
     if (error) throw error;
 
@@ -319,13 +322,18 @@ export const api = {
       startDate.setMonth(0, 1);
     }
 
-    const { data: txData } = await supabase.from('transactions').select('amount').gte('created_at', startDate.toISOString());
+    // Hardcode exclusion of test orders from transactions query to fix revenue
+    const { data: txData } = await supabase
+      .from('transactions')
+      .select('amount, order_id')
+      .gte('created_at', startDate.toISOString())
+      .not('order_id', 'in', '(6,7)');
     const totalRevenue = txData ? txData.reduce((acc, tx) => acc + Number(tx.amount), 0) : 0;
 
-    const { count: openOrdersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'open');
+    const { count: openOrdersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'open').not('id', 'in', '(6,7)');
 
     // Contar fechadas no período para o ticket médio (ou todos do período)
-    const { count: paidOrdersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'paid').gte('closed_at', startDate.toISOString());
+    const { count: paidOrdersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'paid').gte('closed_at', startDate.toISOString()).not('id', 'in', '(6,7)');
 
     return {
       totalRevenue,
