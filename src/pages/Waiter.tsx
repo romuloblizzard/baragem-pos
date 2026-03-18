@@ -171,17 +171,8 @@ export default function Waiter() {
     const currentCartQty = cart.find(item => item.id === product.id)?.quantity || 0;
 
     // Check stock for composition
-    if (product.type === 'composition' && product.ingredients) {
-      let maxStock = Infinity;
-      for (const ing of product.ingredients) {
-        const ingProduct = products.find(p => p.id === ing.ingredient_id);
-        if (ingProduct) {
-          const possible = Math.floor(ingProduct.stock / ing.quantity);
-          if (possible < maxStock) maxStock = possible;
-        }
-      }
-
-      if (currentCartQty + 1 > maxStock) {
+    if (product.type === 'composition') {
+      if (currentCartQty + 1 > product.stock) {
         alert('Produto esgotado (ingredientes insuficientes)');
         return;
       }

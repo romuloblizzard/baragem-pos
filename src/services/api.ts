@@ -48,7 +48,9 @@ export const api = {
         .from('product_ingredients')
         .select(`
           *,
-          products!product_ingredients_ingredient_id_fkey (name, cost_price, stock, unit)
+          products!product_ingredients_ingredient_id_fkey (
+            name, cost_price, stock, unit, bottle_volume_ml, categories(name)
+          )
         `)
         .in('product_id', compositionIds);
 
@@ -60,20 +62,30 @@ export const api = {
               ingredient_name: i.products?.name,
               ingredient_cost: i.products?.cost_price || 0,
               ingredient_stock: i.products?.stock || 0,
-              ingredient_unit: i.products?.unit || 'un'
+              ingredient_unit: i.products?.unit || 'un',
+              ingredient_category: i.products?.categories?.name,
+              ingredient_bottle_volume_ml: i.products?.bottle_volume_ml || 0
             }));
 
             // Dynamic cost: sum of (ingredient cost × quantity used)
             if (p.ingredients.length > 0) {
               p.cost_price = p.ingredients.reduce((sum: number, ing: any) => {
-                return sum + ((ing.ingredient_cost || 0) * (ing.quantity || 0));
+                let actualQty = ing.quantity || 0;
+                if (ing.ingredient_category === 'Garrafa' && ing.ingredient_bottle_volume_ml) {
+                  actualQty = actualQty / ing.ingredient_bottle_volume_ml;
+                }
+                return sum + ((ing.ingredient_cost || 0) * actualQty);
               }, 0);
 
               // Dynamic stock: min of (ingredient stock / quantity needed), floored
               p.stock = Math.floor(Math.min(
                 ...p.ingredients.map((ing: any) => {
-                  if (!ing.quantity || ing.quantity <= 0) return 0;
-                  return (ing.ingredient_stock || 0) / ing.quantity;
+                  let actualQty = ing.quantity || 0;
+                  if (ing.ingredient_category === 'Garrafa' && ing.ingredient_bottle_volume_ml) {
+                    actualQty = actualQty / ing.ingredient_bottle_volume_ml;
+                  }
+                  if (actualQty <= 0) return 0;
+                  return (ing.ingredient_stock || 0) / actualQty;
                 })
               ));
             }
@@ -695,23 +707,21 @@ export const api = {
       if (isBottle) {
         // Garrafa: reconciled_quantity = garrafas inteiras
         const bottleVolume = parseFloat(item.bottle_volume_ml) || parseFloat(product.bottle_volume_ml) || 0;
-        const addedMl = addedStock * bottleVolume;
-        const totalNewMl = currentStock + addedMl;
-        const currentBottles = parseFloat(product.stock_bottles) || 0;
-        const totalNewBottles = currentBottles + addedStock;
+        const totalNewStock = currentStock + addedStock;
+        const totalNewBottles = Math.floor(totalNewStock);
 
-        // Weighted average cost per ml
+        // Weighted average cost per bottle
         let newCost = currentCost;
-        if (totalNewMl > 0) {
+        if (totalNewStock > 0) {
           const currentVal = currentStock * currentCost;
-          const addedVal = addedMl * (addedCost / (bottleVolume || 1)); // cost per ml
-          newCost = (currentVal + addedVal) / totalNewMl;
-        } else if (addedMl > 0) {
-          newCost = addedCost / (bottleVolume || 1);
+          const addedVal = addedStock * addedCost;
+          newCost = (currentVal + addedVal) / totalNewStock;
+        } else if (addedStock > 0) {
+          newCost = addedCost;
         }
 
         updateData = {
-          stock: totalNewMl,
+          stock: totalNewStock,
           stock_bottles: totalNewBottles,
           bottle_volume_ml: bottleVolume,
           cost_price: newCost
