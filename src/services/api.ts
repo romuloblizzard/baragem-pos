@@ -42,13 +42,13 @@ export const api = {
       ingredients: []
     }));
 
-    const compositionIds = formattedProducts.filter(p => p.type === 'composition').map(p => p.id);
+    const compositionIds = formattedProducts.filter((p: any) => p.type === 'composition').map((p: any) => p.id);
     if (compositionIds.length > 0) {
       const { data: ingredientsData, error: ingError } = await supabase
         .from('product_ingredients')
         .select(`
           *,
-          products (name, cost_price, stock, unit)
+          products!product_ingredients_ingredient_id_fkey (name, cost_price, stock, unit)
         `)
         .in('product_id', compositionIds);
 
