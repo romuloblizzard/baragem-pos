@@ -191,9 +191,25 @@ export const api = {
   },
 
   // Orders
-  getOrders: async (status?: string) => {
+  getOrders: async (status?: string, period?: string) => {
     let query = supabase.from('orders').select('*').order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
+
+    if (period) {
+      const startDate = new Date();
+      startDate.setHours(0, 0, 0, 0);
+
+      if (period === 'weekly') {
+        const day = startDate.getDay();
+        const diff = startDate.getDate() - day + (day === 0 ? -6 : 1);
+        startDate.setDate(diff);
+      } else if (period === 'monthly') {
+        startDate.setDate(1);
+      } else if (period === 'yearly') {
+        startDate.setMonth(0, 1);
+      }
+      query = query.gte('created_at', startDate.toISOString());
+    }
 
     const { data: orders, error } = await query;
     if (error) throw error;
