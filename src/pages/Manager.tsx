@@ -1090,11 +1090,11 @@ function Products() {
                       </span>
                     ) : product.category_name === 'Garrafa' ? (
                       <div className="flex flex-col gap-1">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock_bottles <= 2 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                          {product.stock_bottles || 0} garr.
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${Math.floor((product.stock || 0) / (product.bottle_volume_ml || 1)) <= 2 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                          {Math.floor((product.stock || 0) / (product.bottle_volume_ml || 1))} Fechadas
                         </span>
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock <= 500 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-                          {product.stock} ml
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${((product.stock || 0) % (product.bottle_volume_ml || 1)) <= 200 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                          {(product.stock || 0) % (product.bottle_volume_ml || 1)}ml aberto
                         </span>
                       </div>
                     ) : (
@@ -1472,7 +1472,11 @@ function Stock() {
   }, []);
 
   const updateStock = async (product: any, delta: number) => {
-    const newStock = Math.max(0, product.stock + delta);
+    let actualDelta = delta;
+    if (product.category === 'Garrafa' && product.bottle_volume_ml) {
+      actualDelta = delta * product.bottle_volume_ml; // Add/remove whole bottles
+    }
+    const newStock = Math.max(0, product.stock + actualDelta);
     await api.saveProduct({ ...product, stock: newStock });
     api.getProducts().then(setProducts);
   };
@@ -1492,8 +1496,12 @@ function Stock() {
                 onClick={() => updateStock(product, -1)}
                 className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
               >-</button>
-              <span className={`font-mono font-bold w-8 text-center ${product.stock <= 5 ? 'text-red-400' : 'text-slate-200'}`}>
-                {product.stock}
+              <span className={`font-mono font-bold w-auto px-2 text-center text-sm ${product.stock <= (product.category === 'Garrafa' ? 5 * (product.bottle_volume_ml || 1) : 5) ? 'text-red-400' : 'text-slate-200'}`}>
+                {product.category === 'Garrafa' && product.bottle_volume_ml ? (
+                  `${Math.floor((product.stock || 0) / product.bottle_volume_ml)} Fechadas | ${(product.stock || 0) % product.bottle_volume_ml}ml aberto`
+                ) : (
+                  product.stock
+                )}
               </span>
               <button
                 onClick={() => updateStock(product, 1)}
