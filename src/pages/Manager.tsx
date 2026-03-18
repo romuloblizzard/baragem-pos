@@ -937,11 +937,10 @@ function Products() {
       data.purchase_unit = formData.get('purchase_unit') || null;
       data.unit_conversion_factor = parseFloat(formData.get('unit_conversion_factor') as string) || 1;
 
-      // Garrafa: volume e estoque duplo
+      // Garrafa: volume apenas
       const selectedCat = categories.find(c => c.id === data.category_id);
       if (selectedCat?.name === 'Garrafa') {
         data.bottle_volume_ml = parseFloat(formData.get('bottle_volume_ml') as string) || 0;
-        data.stock_bottles = parseFloat(formData.get('stock_bottles') as string) || 0;
       }
     } else {
       data.stock = 0; // Default stock for variable/composition
@@ -1090,11 +1089,11 @@ function Products() {
                       </span>
                     ) : product.category_name === 'Garrafa' ? (
                       <div className="flex flex-col gap-1">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${Math.floor((product.stock || 0) / (product.bottle_volume_ml || 1)) <= 2 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                          {Math.floor((product.stock || 0) / (product.bottle_volume_ml || 1))} Fechadas
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${Math.floor(product.stock || 0) <= 2 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                          {Math.floor(product.stock || 0)} Fechadas
                         </span>
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${((product.stock || 0) % (product.bottle_volume_ml || 1)) <= 200 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-                          {(product.stock || 0) % (product.bottle_volume_ml || 1)}ml aberto
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${Math.round(((product.stock || 0) % 1) * (product.bottle_volume_ml || 1000)) <= 200 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                          {Math.round(((product.stock || 0) % 1) * (product.bottle_volume_ml || 1000))}ml aberto
                         </span>
                       </div>
                     ) : (
@@ -1318,14 +1317,10 @@ function Products() {
               {categories.find(c => c.id === (editingProduct?.category_id || categories[0]?.id))?.name === 'Garrafa' && productType === 'simple' && (
                 <div className="p-3 bg-amber-900/10 border border-amber-900/30 rounded-xl space-y-3">
                   <p className="text-xs text-amber-400 font-bold uppercase">🍾 Configuração de Garrafa</p>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-amber-400 mb-1">Volume da Garrafa (ml)</label>
                       <input name="bottle_volume_ml" type="number" step="1" defaultValue={editingProduct?.bottle_volume_ml || 1000} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" placeholder="Ex: 750, 1000" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-amber-400 mb-1">Estoque em Garrafas</label>
-                      <input name="stock_bottles" type="number" step="0.001" defaultValue={editingProduct?.stock_bottles || 0} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" />
                     </div>
                   </div>
                 </div>
@@ -1472,11 +1467,8 @@ function Stock() {
   }, []);
 
   const updateStock = async (product: any, delta: number) => {
-    let actualDelta = delta;
-    if (product.category === 'Garrafa' && product.bottle_volume_ml) {
-      actualDelta = delta * product.bottle_volume_ml; // Add/remove whole bottles
-    }
-    const newStock = Math.max(0, product.stock + actualDelta);
+    // Delta agora é literalmente a quantidade de garrafas, não precisa multiplicar.
+    const newStock = Math.max(0, product.stock + delta);
     await api.saveProduct({ ...product, stock: newStock });
     api.getProducts().then(setProducts);
   };
@@ -1496,9 +1488,9 @@ function Stock() {
                 onClick={() => updateStock(product, -1)}
                 className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
               >-</button>
-              <span className={`font-mono font-bold w-auto px-2 text-center text-sm ${product.stock <= (product.category === 'Garrafa' ? 5 * (product.bottle_volume_ml || 1) : 5) ? 'text-red-400' : 'text-slate-200'}`}>
+              <span className={`font-mono font-bold w-auto px-2 text-center text-sm ${product.stock <= (product.category === 'Garrafa' ? 5 : 5) ? 'text-red-400' : 'text-slate-200'}`}>
                 {product.category === 'Garrafa' && product.bottle_volume_ml ? (
-                  `${Math.floor((product.stock || 0) / product.bottle_volume_ml)} Fechadas | ${(product.stock || 0) % product.bottle_volume_ml}ml aberto`
+                  `${Math.floor(product.stock || 0)} Fechadas | ${Math.round(((product.stock || 0) % 1) * product.bottle_volume_ml)}ml aberto`
                 ) : (
                   product.stock
                 )}
