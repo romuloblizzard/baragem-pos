@@ -610,19 +610,7 @@ export default function Waiter() {
         {/* Product Grid */}
         <div className="grid grid-cols-2 gap-3">
           {filteredProducts.filter(p => !p.parent_id).map(product => {
-            // Calculate stock display for composition
             let displayStock = product.stock;
-            if (product.type === 'composition' && product.ingredients) {
-              let maxStock = Infinity;
-              for (const ing of product.ingredients) {
-                const ingProduct = products.find(p => p.id === ing.ingredient_id);
-                if (ingProduct) {
-                  const possible = Math.floor(ingProduct.stock / ing.quantity);
-                  if (possible < maxStock) maxStock = possible;
-                }
-              }
-              displayStock = maxStock === Infinity ? 0 : maxStock;
-            }
 
             return (
               <button
@@ -678,19 +666,7 @@ export default function Waiter() {
             <p className="text-slate-400 mb-4 text-sm">Selecione uma opção:</p>
             <div className="space-y-2 max-h-[60vh] overflow-y-auto">
               {products.filter(p => p.parent_id === selectedVariableProduct.id).map(variation => {
-                // Calculate stock for variation (could be simple or composition)
                 let displayStock = variation.stock;
-                if (variation.type === 'composition' && variation.ingredients) {
-                  let maxStock = Infinity;
-                  for (const ing of variation.ingredients) {
-                    const ingProduct = products.find(p => p.id === ing.ingredient_id);
-                    if (ingProduct) {
-                      const possible = Math.floor(ingProduct.stock / ing.quantity);
-                      if (possible < maxStock) maxStock = possible;
-                    }
-                  }
-                  displayStock = maxStock === Infinity ? 0 : maxStock;
-                }
 
                 return (
                   <button
