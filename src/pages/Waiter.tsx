@@ -14,6 +14,7 @@ export default function Waiter() {
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -388,9 +389,18 @@ export default function Waiter() {
     setOrdersToPay(ordersToPay.filter(o => o.id !== orderId));
   };
 
-  const filteredProducts = selectedCategory
-    ? products.filter(p => p.category_id === selectedCategory)
-    : products;
+  const filteredProducts = products.filter(p => {
+    if (searchTerm && !p.name.toLowerCase().includes(searchTerm.toLowerCase())) {
+      return false;
+    }
+    if (selectedCategory !== null) {
+      const childIds = categories.filter(c => c.parent_id === selectedCategory).map(c => c.id);
+      if (p.category_id !== selectedCategory && !childIds.includes(p.category_id)) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   if (view === 'home') {
     return (
@@ -593,7 +603,7 @@ export default function Waiter() {
           >
             Todos
           </button>
-          {categories.map(cat => (
+          {categories.filter(c => c.show_on_waiter !== false && !c.parent_id).map(cat => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
@@ -605,6 +615,23 @@ export default function Waiter() {
               {cat.name}
             </button>
           ))}
+        </div>
+
+        {/* Product Search */}
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Buscar produto..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+          <Search className="absolute left-3 top-3.5 text-slate-500" size={20} />
+          {searchTerm && (
+            <button onClick={() => setSearchTerm('')} className="absolute right-3 top-3.5 text-slate-500 hover:text-white">
+              <X size={20} />
+            </button>
+          )}
         </div>
 
         {/* Product Grid */}

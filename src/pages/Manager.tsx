@@ -1038,6 +1038,7 @@ function Products() {
   const [productType, setProductType] = useState('simple');
   const [ingredients, setIngredients] = useState<any[]>([]);
   const [childProducts, setChildProducts] = useState<number[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     loadProducts();
@@ -1188,6 +1189,17 @@ function Products() {
         </button>
       </div>
 
+      <div className="relative">
+        <input
+          type="text"
+          placeholder="Buscar produto, variação ou categoria..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+        />
+        <Search className="absolute left-3 top-3.5 text-slate-500" size={20} />
+      </div>
+
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden overflow-x-auto">
         <table className="w-full text-left text-sm min-w-[800px]">
           <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
@@ -1201,7 +1213,18 @@ function Products() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
-            {products.filter(p => !p.parent_id).map(product => (
+            {products.filter(p => {
+              if (p.parent_id) return false;
+              if (searchTerm) {
+                const term = searchTerm.toLowerCase();
+                const matchesName = p.name.toLowerCase().includes(term);
+                const matchesCat = p.category_name?.toLowerCase().includes(term);
+                // Also check if any child product matches!
+                const hasMatchingChild = products.some(child => child.parent_id === p.id && child.name.toLowerCase().includes(term));
+                return matchesName || matchesCat || hasMatchingChild;
+              }
+              return true;
+            }).map(product => (
               <React.Fragment key={product.id}>
                 <tr className="hover:bg-slate-800/30 transition-colors">
                   <td className="px-6 py-4 font-medium text-slate-200">
