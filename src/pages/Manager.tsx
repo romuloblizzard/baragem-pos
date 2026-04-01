@@ -1039,6 +1039,19 @@ function Products() {
   const [ingredients, setIngredients] = useState<any[]>([]);
   const [childProducts, setChildProducts] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Sorting State
+  const [sortField, setSortField] = useState<'name' | 'type' | 'category' | 'price' | 'stock'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (field: 'name' | 'type' | 'category' | 'price' | 'stock') => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   useEffect(() => {
     loadProducts();
@@ -1204,11 +1217,21 @@ function Products() {
         <table className="w-full text-left text-sm min-w-[800px]">
           <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
             <tr>
-              <th className="px-6 py-4">Produto</th>
-              <th className="px-6 py-4">Tipo</th>
-              <th className="px-6 py-4">Categoria</th>
-              <th className="px-6 py-4">Preço</th>
-              <th className="px-6 py-4">Estoque</th>
+              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('name')}>
+                <div className="flex items-center gap-1">Produto {sortField === 'name' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              </th>
+              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('type')}>
+                <div className="flex items-center gap-1">Tipo {sortField === 'type' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              </th>
+              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('category')}>
+                <div className="flex items-center gap-1">Categoria {sortField === 'category' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              </th>
+              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('price')}>
+                <div className="flex items-center gap-1">Preço {sortField === 'price' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              </th>
+              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('stock')}>
+                <div className="flex items-center gap-1">Estoque {sortField === 'stock' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              </th>
               <th className="px-6 py-4 text-right">Ações</th>
             </tr>
           </thead>
@@ -1224,6 +1247,14 @@ function Products() {
                 return matchesName || matchesCat || hasMatchingChild;
               }
               return true;
+            }).sort((a, b) => {
+              const dir = sortDirection === 'asc' ? 1 : -1;
+              if (sortField === 'name') return a.name.localeCompare(b.name) * dir;
+              if (sortField === 'type') return a.type.localeCompare(b.type) * dir;
+              if (sortField === 'category') return (a.category_name || '').localeCompare(b.category_name || '') * dir;
+              if (sortField === 'price') return ((a.price || 0) - (b.price || 0)) * dir;
+              if (sortField === 'stock') return ((a.stock || 0) - (b.stock || 0)) * dir;
+              return 0;
             }).map(product => (
               <React.Fragment key={product.id}>
                 <tr className="hover:bg-slate-800/30 transition-colors">
