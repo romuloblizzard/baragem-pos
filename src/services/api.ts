@@ -275,7 +275,10 @@ export const api = {
     const { data: existing } = await supabase.from('orders').select('id').eq('pulseira', data.pulseira).eq('status', 'open').maybeSingle();
     if (existing) throw new Error('Order already open for this pulseira');
 
-    const { data: order, error } = await supabase.from('orders').insert(data).select().single();
+    const employee_id = localStorage.getItem('pos_employee_id');
+    const enrichedData = { ...data, employee_id: employee_id || null };
+
+    const { data: order, error } = await supabase.from('orders').insert(enrichedData).select().single();
     if (error) throw error;
     return order;
   },
@@ -314,10 +317,12 @@ export const api = {
     return { success: true };
   },
   payOrder: async (orderId: number, amount: number, method: string) => {
+    const employee_id = localStorage.getItem('pos_employee_id');
     const { error: txError } = await supabase.from('transactions').insert({
       order_id: orderId,
       amount,
-      method
+      method,
+      employee_id: employee_id || null
     });
     if (txError) throw txError;
 
@@ -328,6 +333,25 @@ export const api = {
     if (updError) throw updError;
 
     return { success: true };
+  },
+
+  getEmployeeHistory: async (employeeId: string, startDate?: string, endDate?: string) => {
+    let oq = supabase.from('orders').select('*, items:order_items(quantity, price_at_time, products(name))').eq('employee_id', employeeId).order('created_at', { ascending: false });
+    if (startDate) oq = oq.gte('created_at', startDate);
+    if (endDate) oq = oq.lte('created_at', endDate);
+    
+    let tq = supabase.from('transactions').select('*, order:orders(pulseira, customer_name)').eq('employee_id', employeeId).order('created_at', { ascending: false });
+    if (startDate) tq = tq.gte('created_at', startDate);
+    if (endDate) tq = tq.lte('created_at', endDate);
+
+    const [ordersRes, transactionsRes] = await Promise.all([oq, tq]);
+    if (ordersRes.error) throw ordersRes.error;
+    if (transactionsRes.error) throw transactionsRes.error;
+
+    return {
+      orders: ordersRes.data || [],
+      transactions: transactionsRes.data || []
+    };
   },
 
   // Stats

@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
-  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart
+  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X
 } from 'lucide-react';
 
 export default function Manager() {
@@ -857,6 +857,14 @@ function Team() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<any>(null);
 
+  // History State
+  const [historyEmployee, setHistoryEmployee] = useState<any>(null);
+  const [historyData, setHistoryData] = useState<{orders: any[], transactions: any[]}>({orders: [], transactions: []});
+  const [historyPeriod, setHistoryPeriod] = useState<'today' | 'month' | 'custom'>('today');
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
   useEffect(() => {
     loadEmployees();
   }, []);
@@ -869,6 +877,57 @@ function Team() {
       console.error(err);
     }
   };
+
+  const loadHistory = async (empId: string, period: string, start?: string, end?: string) => {
+    setIsHistoryLoading(true);
+    try {
+      let isoStart: string | undefined;
+      let isoEnd: string | undefined;
+      const now = new Date();
+      
+      if (period === 'today') {
+        const d = new Date(now);
+        d.setHours(0,0,0,0);
+        isoStart = d.toISOString();
+      } else if (period === 'month') {
+        const d = new Date(now.getFullYear(), now.getMonth(), 1);
+        isoStart = d.toISOString();
+      } else if (period === 'custom') {
+        if (start) {
+          const d = new Date(start);
+          const userOffset = d.getTimezoneOffset() * 60000;
+          isoStart = new Date(d.getTime() + userOffset).toISOString();
+        }
+        if (end) {
+          const d = new Date(end);
+          const userOffset = d.getTimezoneOffset() * 60000;
+          d.setTime(d.getTime() + userOffset);
+          d.setHours(23,59,59,999);
+          isoEnd = d.toISOString();
+        }
+      }
+      
+      const res = await api.getEmployeeHistory(empId, isoStart, isoEnd);
+      setHistoryData(res);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao buscar histórico do funcionário');
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const openHistory = (emp: any) => {
+    setHistoryEmployee(emp);
+    setHistoryPeriod('today');
+    loadHistory(emp.id, 'today');
+  };
+
+  useEffect(() => {
+    if (historyEmployee) {
+      loadHistory(historyEmployee.id, historyPeriod, historyStartDate, historyEndDate);
+    }
+  }, [historyPeriod, historyStartDate, historyEndDate]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -958,6 +1017,13 @@ function Team() {
                 </td>
                 <td className="px-6 py-4 text-right flex justify-end gap-2">
                   <button
+                    onClick={() => openHistory(emp)}
+                    className="text-amber-400 hover:text-amber-300 p-2 hover:bg-amber-500/10 rounded-lg transition-colors"
+                    title="Histórico de Vendas"
+                  >
+                    <ClipboardList size={16} />
+                  </button>
+                  <button
                     onClick={() => { setEditingEmployee(emp); setIsModalOpen(true); }}
                     className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
                   >
@@ -1019,6 +1085,171 @@ function Team() {
                 <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium shadow-lg shadow-blue-500/20">Salvar Dados</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {historyEmployee && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <ClipboardList className="text-blue-400" /> Histórico de: {historyEmployee.name}
+                </h3>
+                <p className="text-sm text-slate-400 mt-1">Acompanhe as vendas e pagamentos processados por este usuário.</p>
+              </div>
+              <button 
+                onClick={() => setHistoryEmployee(null)}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-full transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Filters */}
+            <div className="p-6 border-b border-slate-800 flex flex-wrap gap-4 items-center bg-slate-900">
+              <div className="flex bg-slate-800 rounded-lg p-1">
+                <button 
+                  onClick={() => setHistoryPeriod('today')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'today' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Hoje
+                </button>
+                <button 
+                  onClick={() => setHistoryPeriod('month')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'month' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Este Mês
+                </button>
+                <button 
+                  onClick={() => setHistoryPeriod('custom')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'custom' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Personalizado
+                </button>
+              </div>
+
+              {historyPeriod === 'custom' && (
+                <div className="flex gap-2 items-center">
+                  <input 
+                    type="date"
+                    value={historyStartDate}
+                    onChange={e => setHistoryStartDate(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" 
+                  />
+                  <span className="text-slate-500">até</span>
+                  <input 
+                    type="date"
+                    value={historyEndDate}
+                    onChange={e => setHistoryEndDate(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" 
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Content Body */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-950">
+              {isHistoryLoading ? (
+                <div className="flex justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                      <p className="text-sm text-slate-400 font-medium">Total Recebido</p>
+                      <h4 className="text-2xl font-bold text-emerald-400 mt-1">
+                        R$ {historyData.transactions.reduce((acc, t) => acc + Number(t.amount), 0).toFixed(2)}
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1">{historyData.transactions.length} pagamentos processados</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                      <p className="text-sm text-slate-400 font-medium">Comandas Abertas</p>
+                      <h4 className="text-2xl font-bold text-blue-400 mt-1">
+                        {historyData.orders.length} comandas
+                      </h4>
+                    </div>
+                  </div>
+
+                  {/* Transactions Table */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="p-4 border-b border-slate-800 bg-slate-800/30">
+                      <h4 className="font-bold text-slate-200">Pagamentos Processados pelo Funcionário</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm min-w-[600px]">
+                        <thead className="bg-slate-800/50 text-slate-400 font-medium">
+                          <tr>
+                            <th className="px-4 py-3">Comanda</th>
+                            <th className="px-4 py-3">Data/Hora</th>
+                            <th className="px-4 py-3">Método</th>
+                            <th className="px-4 py-3 text-right">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800">
+                          {historyData.transactions.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-6 text-center text-slate-500">Nenhum pagamento registrado no período.</td>
+                            </tr>
+                          ) : historyData.transactions.map((t, idx) => (
+                            <tr key={idx} className="hover:bg-slate-800/30">
+                              <td className="px-4 py-3 font-medium text-slate-300">#{t.order?.pulseira || t.order_id} {t.order?.customer_name ? `- ${t.order.customer_name}` : ''}</td>
+                              <td className="px-4 py-3 text-slate-400">{new Date(t.created_at).toLocaleString('pt-BR')}</td>
+                              <td className="px-4 py-3">
+                                <span className="uppercase text-xs font-bold text-slate-400 bg-slate-800 px-2 py-1 rounded">{t.method}</span>
+                              </td>
+                              <td className="px-4 py-3 text-right text-emerald-400 font-medium">R$ {Number(t.amount).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Orders Table */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="p-4 border-b border-slate-800 bg-slate-800/30">
+                      <h4 className="font-bold text-slate-200">Comandas Abertas pelo Funcionário</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm min-w-[600px]">
+                        <thead className="bg-slate-800/50 text-slate-400 font-medium">
+                          <tr>
+                            <th className="px-4 py-3">Comanda</th>
+                            <th className="px-4 py-3">Data Abertura</th>
+                            <th className="px-4 py-3">Cliente</th>
+                            <th className="px-4 py-3">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800">
+                          {historyData.orders.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-6 text-center text-slate-500">Nenhuma comanda aberta no período.</td>
+                            </tr>
+                          ) : historyData.orders.map((o, idx) => (
+                            <tr key={idx} className="hover:bg-slate-800/30">
+                              <td className="px-4 py-3 font-medium text-slate-300">#{o.pulseira || o.id}</td>
+                              <td className="px-4 py-3 text-slate-400">{new Date(o.created_at).toLocaleString('pt-BR')}</td>
+                              <td className="px-4 py-3 text-slate-300">{o.customer_name || 'Sem nome'}</td>
+                              <td className="px-4 py-3">
+                                <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${o.status === 'open' ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                                  {o.status === 'open' ? 'Aberta' : 'Paga/Fechada'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
