@@ -92,24 +92,35 @@ function Categories() {
   const [categories, setCategories] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any>(null);
+  const [defaultParentId, setDefaultParentId] = useState<number | null>(null);
 
-  useEffect(() => {
-    loadCategories();
-  }, []);
+  useEffect(() => { loadCategories(); }, []);
 
   const loadCategories = () => api.getCategories().then(setCategories);
+
+  const parentCategories = categories.filter(c => !c.parent_id);
+  const childCategories = categories.filter(c => !!c.parent_id);
+
+  const openModal = (cat: any = null, parentId: number | null = null) => {
+    setEditingCategory(cat);
+    setDefaultParentId(parentId);
+    setIsModalOpen(true);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
+    const parentIdVal = formData.get('parent_id');
     const data = {
       id: editingCategory?.id,
-      name: formData.get('name'),
+      name: formData.get('name') as string,
+      parent_id: parentIdVal ? Number(parentIdVal) : null,
     };
     try {
       await api.saveCategory(data);
       setIsModalOpen(false);
       setEditingCategory(null);
+      setDefaultParentId(null);
       loadCategories();
     } catch (err) {
       alert('Erro ao salvar categoria');
@@ -117,6 +128,11 @@ function Categories() {
   };
 
   const handleDelete = async (id: number) => {
+    const hasChildren = childCategories.some(c => c.parent_id === id);
+    if (hasChildren) {
+      alert('Esta categoria possui subcategorias. Remova ou mova as subcategorias antes de excluir.');
+      return;
+    }
     if (!confirm('Tem certeza? Isso pode falhar se houver produtos nesta categoria.')) return;
     try {
       await api.deleteCategory(id);
@@ -126,64 +142,183 @@ function Categories() {
     }
   };
 
+  // Resolve parent_id being used in modal
+  const modalIsChild = editingCategory ? !!editingCategory.parent_id : defaultParentId !== null;
+  const modalParentId = editingCategory?.parent_id ?? defaultParentId;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Gerenciar Categorias</h2>
+        <div>
+          <h2 className="text-2xl font-bold">Gerenciar Categorias</h2>
+          <p className="text-slate-400 text-sm mt-1">Organize produtos em Categorias Pai e Subcategorias</p>
+        </div>
         <button
-          onClick={() => { setEditingCategory(null); setIsModalOpen(true); }}
+          onClick={() => openModal(null, null)}
           className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
         >
           <Plus size={18} /> Nova Categoria
         </button>
       </div>
 
-      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden max-w-2xl overflow-x-auto">
-        <table className="w-full text-left text-sm min-w-[500px]">
-          <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
-            <tr>
-              <th className="px-6 py-4">Nome</th>
-              <th className="px-6 py-4 text-right">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800">
-            {categories.map(cat => (
-              <tr key={cat.id} className="hover:bg-slate-800/30 transition-colors">
-                <td className="px-6 py-4 font-medium text-slate-200">{cat.name}</td>
-                <td className="px-6 py-4 text-right flex justify-end gap-2">
+      {/* Parent categories with their children */}
+      <div className="space-y-4">
+        {parentCategories.length === 0 && (
+          <div className="text-center py-16 text-slate-500 bg-slate-900/30 border border-slate-800 rounded-2xl">
+            <List size={40} className="mx-auto mb-3 opacity-30" />
+            <p className="font-medium">Nenhuma categoria Pai criada</p>
+            <p className="text-sm mt-1">Crie uma categoria Pai para começar a organizar</p>
+          </div>
+        )}
+
+        {parentCategories.map(parent => {
+          const children = childCategories.filter(c => c.parent_id === parent.id);
+          return (
+            <div key={parent.id} className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+              {/* Parent row */}
+              <div className="flex items-center justify-between px-5 py-4 bg-slate-800/40 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full bg-blue-400" />
+                  <span className="font-bold text-slate-100 text-base">{parent.name}</span>
+                  <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
+                    {children.length} {children.length === 1 ? 'subcategoria' : 'subcategorias'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
                   <button
-                    onClick={() => { setEditingCategory(cat); setIsModalOpen(true); }}
+                    onClick={() => openModal(null, parent.id)}
+                    title="Adicionar subcategoria"
+                    className="text-emerald-400 hover:text-emerald-300 px-3 py-1.5 text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg flex items-center gap-1 transition-colors"
+                  >
+                    <Plus size={13} /> Sub
+                  </button>
+                  <button
+                    onClick={() => openModal(parent, null)}
                     className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
                   >
-                    <Edit size={16} />
+                    <Edit size={15} />
                   </button>
                   <button
-                    onClick={() => handleDelete(cat.id)}
+                    onClick={() => handleDelete(parent.id)}
                     className="text-red-400 hover:text-red-300 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={15} />
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+
+              {/* Children rows */}
+              {children.length > 0 && (
+                <div className="divide-y divide-slate-800/60">
+                  {children.map(child => (
+                    <div key={child.id} className="flex items-center justify-between px-5 py-3 hover:bg-slate-800/20 transition-colors">
+                      <div className="flex items-center gap-3 pl-5">
+                        <div className="w-px h-4 bg-slate-700" />
+                        <div className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                        <span className="text-slate-300 text-sm">{child.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openModal(child, null)}
+                          className="text-blue-400 hover:text-blue-300 p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(child.id)}
+                          className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {children.length === 0 && (
+                <div
+                  className="px-5 py-3 pl-14 text-xs text-slate-600 italic cursor-pointer hover:text-slate-500 transition-colors"
+                  onClick={() => openModal(null, parent.id)}
+                >
+                  + Adicionar subcategoria em {parent.name}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Orphan children (parent deleted) */}
+        {childCategories.filter(c => !parentCategories.find(p => p.id === c.parent_id)).length > 0 && (
+          <div className="bg-amber-900/20 border border-amber-800/40 rounded-2xl p-4">
+            <p className="text-amber-400 text-xs font-bold uppercase mb-3">⚠ Subcategorias sem Pai</p>
+            <div className="space-y-2">
+              {childCategories.filter(c => !parentCategories.find(p => p.id === c.parent_id)).map(orphan => (
+                <div key={orphan.id} className="flex items-center justify-between">
+                  <span className="text-slate-300 text-sm">{orphan.name}</span>
+                  <div className="flex gap-1">
+                    <button onClick={() => openModal(orphan, null)} className="text-blue-400 p-1.5 hover:bg-blue-500/10 rounded-lg"><Edit size={14} /></button>
+                    <button onClick={() => handleDelete(orphan.id)} className="text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h3 className="text-xl font-bold mb-4">
+            <h3 className="text-xl font-bold mb-1">
               {editingCategory ? 'Editar Categoria' : 'Nova Categoria'}
             </h3>
+            <p className="text-slate-400 text-sm mb-5">
+              {modalIsChild ? 'Criando como subcategoria' : 'Criando como categoria principal'}
+            </p>
             <form onSubmit={handleSave} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">Nome</label>
-                <input name="name" defaultValue={editingCategory?.name} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                <input
+                  name="name"
+                  defaultValue={editingCategory?.name}
+                  required
+                  autoFocus
+                  placeholder="Ex: Cervejas, Bebidas, Comidas..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-slate-100"
+                />
               </div>
-              <div className="flex justify-end gap-3 mt-6">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
-                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium">Salvar</button>
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Categoria Pai <span className="text-slate-600">(opcional)</span></label>
+                <select
+                  name="parent_id"
+                  defaultValue={modalParentId ?? ''}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-slate-100"
+                >
+                  <option value="">— Nenhuma (será categoria Pai) —</option>
+                  {parentCategories
+                    .filter(p => p.id !== editingCategory?.id)
+                    .map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setIsModalOpen(false); setEditingCategory(null); setDefaultParentId(null); }}
+                  className="px-4 py-2 text-slate-400 hover:text-white transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                >
+                  Salvar
+                </button>
               </div>
             </form>
           </div>

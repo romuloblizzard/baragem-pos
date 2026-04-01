@@ -3,17 +3,24 @@ import { supabase } from './supabase';
 export const api = {
   // Categories
   getCategories: async () => {
-    const { data, error } = await supabase.from('categories').select('*').order('name');
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*, parent:categories!parent_id(id, name)')
+      .order('name');
     if (error) throw error;
-    return data;
+    return (data || []).map((c: any) => ({
+      ...c,
+      parent_name: c.parent?.name || null,
+    }));
   },
   saveCategory: async (category: any) => {
+    const payload: any = { name: category.name, parent_id: category.parent_id || null };
     if (category.id) {
-      const { data, error } = await supabase.from('categories').update({ name: category.name }).eq('id', category.id).select().single();
+      const { data, error } = await supabase.from('categories').update(payload).eq('id', category.id).select().single();
       if (error) throw error;
       return data;
     } else {
-      const { data, error } = await supabase.from('categories').insert({ name: category.name }).select().single();
+      const { data, error } = await supabase.from('categories').insert(payload).select().single();
       if (error) throw error;
       return data;
     }
