@@ -75,7 +75,7 @@ export default function Manager() {
 
       <main className="p-4 md:p-6 max-w-7xl mx-auto">
         {activeTab === 'dashboard' && <Dashboard stats={stats} period={period} setPeriod={setPeriod} />}
-        {activeTab === 'history' && <History period={period} setPeriod={setPeriod} stats={stats} />}
+        {activeTab === 'history' && <History />}
         {activeTab === 'team' && <Team />}
         {activeTab === 'products' && <Products />}
         {activeTab === 'categories' && <Categories />}
@@ -678,131 +678,253 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
   );
 }
 
-function History({ period, setPeriod, stats }: { period: 'daily' | 'weekly' | 'monthly' | 'yearly', setPeriod: (p: any) => void, stats: any }) {
-  const [orders, setOrders] = useState<any[]>([]);
-  const [filteredOrders, setFilteredOrders] = useState<any[]>([]);
+function History() {
+  const [data, setData] = useState<any>({ orders: [], transactions: [], cashier_sessions: [] });
+  const [loading, setLoading] = useState(false);
+  
+  // Date filters
+  const [historyPeriod, setHistoryPeriod] = useState<'today' | 'month' | 'custom'>('today');
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
+
+  // Sub Tabs
+  const [subTab, setSubTab] = useState<'summary' | 'products' | 'cashier' | 'orders'>('summary');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewDetailsOrder, setViewDetailsOrder] = useState<any>(null);
 
   useEffect(() => {
-    loadOrders();
-  }, [period]);
+    loadData();
+  }, [historyPeriod, historyStartDate, historyEndDate]);
 
-  useEffect(() => {
-    if (!searchTerm.trim()) {
-      setFilteredOrders(orders);
-      return;
-    }
-    const lowerTerm = searchTerm.toLowerCase();
-    const filtered = orders.filter(order =>
-      order.customer_name?.toLowerCase().includes(lowerTerm) ||
-      order.pulseira?.toLowerCase().includes(lowerTerm) ||
-      order.items?.some((item: any) => item.product_name?.toLowerCase().includes(lowerTerm))
-    );
-    setFilteredOrders(filtered);
-  }, [searchTerm, orders]);
-
-  const loadOrders = async () => {
+  const loadData = async () => {
+    setLoading(true);
     try {
-      const data = await api.getOrders('paid', period);
-      setOrders(data);
-    } catch (err) {
-      console.error(err);
+      let isoStart: string | undefined;
+      let isoEnd: string | undefined;
+      const now = new Date();
+      
+      if (historyPeriod === 'today') {
+        const d = new Date(now);
+        d.setHours(0,0,0,0);
+        isoStart = d.toISOString();
+      } else if (historyPeriod === 'month') {
+        const d = new Date(now.getFullYear(), now.getMonth(), 1);
+        isoStart = d.toISOString();
+      } else if (historyPeriod === 'custom') {
+        if (historyStartDate) {
+           const d = new Date(historyStartDate);
+           const userOffset = d.getTimezoneOffset() * 60000;
+           isoStart = new Date(d.getTime() + userOffset).toISOString();
+        }
+        if (historyEndDate) {
+           const d = new Date(historyEndDate);
+           const userOffset = d.getTimezoneOffset() * 60000;
+           d.setTime(d.getTime() + userOffset);
+           d.setHours(23,59,59,999);
+           isoEnd = d.toISOString();
+        }
+      }
+      
+      const res = await api.getGeneralHistory(isoStart, isoEnd);
+      setData(res);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const totalViewDetails = viewDetailsOrder?.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0) || 0;
+  // 1. Payment Methods: Group transactions by method
+  const paymentMethods = data.transactions?.reduce((acc: any, t: any) => {
+    acc[t.method] = (acc[t.method] || 0) + Number(t.amount);
+    return acc;
+  }, {}) || {};
 
-  const periodLabels = {
-    daily: 'Hoje',
-    weekly: '7 Dias',
-    monthly: 'Mês',
-    yearly: 'Ano'
-  };
+  // 2. Products Sold: iterate orders -> items -> group by product_name
+  const productSalesMap = data.orders?.reduce((acc: any, order: any) => {
+    order.items?.forEach((item: any) => {
+       const name = item.product_name || `ID ${item.product_id}`;
+       if (!acc[name]) acc[name] = { quantity: 0, revenue: 0 };
+       acc[name].quantity += item.quantity;
+       acc[name].revenue += item.quantity * item.price_at_time;
+    });
+    return acc;
+  }, {}) || {};
+  const productSales = Object.entries(productSalesMap)
+    .map(([name, stats]: [string, any]) => ({ name, ...stats }))
+    .sort((a,b) => b.revenue - a.revenue);
+
+  // 3. Orders search 
+  const filteredOrders = data.orders?.filter((o: any) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return o.pulseira?.toLowerCase().includes(term) || o.customer_name?.toLowerCase().includes(term);
+  }) || [];
+  
+  const totalViewDetails = viewDetailsOrder?.items?.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0) || 0;
 
   return (
     <div className="space-y-6">
-      {/* PERIOD FILTERS */}
-      <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-800 self-start max-w-md">
-        {(Object.keys(periodLabels) as Array<keyof typeof periodLabels>).map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={`flex-1 text-sm font-medium py-2 px-4 rounded-lg transition-all ${period === p
-              ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-              }`}
-          >
-            {periodLabels[p]}
-          </button>
-        ))}
-      </div>
-
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h2 className="text-2xl font-bold flex items-center gap-2">
-          <ClipboardList className="text-blue-400" />
-          Histórico de Pedidos
+          <ClipboardList className="text-blue-400" /> Relatórios e Histórico
         </h2>
-
-        <div className="flex gap-4 w-full md:w-auto">
-          {/* TOTAL IN THE HEADER */}
-          <div className="bg-slate-900 border border-slate-700 px-4 py-2 rounded-lg flex flex-col justify-center items-end hidden sm:flex">
-            <span className="text-xs text-slate-400 uppercase font-bold">Faturado no Período</span>
-            <span className="text-lg font-bold text-emerald-400">R$ {stats?.totalRevenue?.toFixed(2) || '0.00'}</span>
-          </div>
-
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="Buscar por cliente, comanda ou produto..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-slate-200"
-            />
-          </div>
-        </div>
       </div>
 
-      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredOrders.map(order => (
-            <div
-              key={order.id}
-              className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl hover:border-blue-500/50 transition-all cursor-pointer"
-              onClick={() => setViewDetailsOrder(order)}
-            >
-              <div className="flex justify-between items-start mb-2">
-                <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded text-xs font-bold">
-                  #{order.pulseira}
-                </span>
-                <span className="text-slate-400 text-xs text-right">
-                  {new Date(order.closed_at || order.created_at).toLocaleString()}
-                </span>
-              </div>
-              <h3 className="font-bold text-lg text-slate-200">{order.customer_name}</h3>
-              {order.customer_phone && <p className="text-xs text-blue-400">📞 {order.customer_phone}</p>}
+      {/* Date Filters */}
+      <div className="p-4 rounded-xl border border-slate-800 flex flex-wrap gap-4 items-center bg-slate-900/50">
+        <div className="flex bg-slate-800 rounded-lg p-1">
+          <button onClick={() => setHistoryPeriod('today')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'today' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Hoje</button>
+          <button onClick={() => setHistoryPeriod('month')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'month' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Este Mês</button>
+          <button onClick={() => setHistoryPeriod('custom')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'custom' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Personalizado</button>
+        </div>
 
-              <div className="mt-3 pt-3 border-t border-slate-700/50 flex justify-between items-center">
-                <span className="text-sm text-slate-400 flex items-center gap-1">
-                  <span className={`w-2 h-2 rounded-full ${order.status === 'paid' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-                  Pago
-                </span>
-                <span className="font-bold text-emerald-400">
-                  R$ {order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0).toFixed(2)}
-                </span>
-              </div>
-            </div>
-          ))}
-          {filteredOrders.length === 0 && (
-            <div className="col-span-full text-center py-12 text-slate-500">
-              {searchTerm ? 'Nenhum pedido encontrado para esta busca.' : 'Nenhum pedido fechado ainda.'}
-            </div>
+        {historyPeriod === 'custom' && (
+          <div className="flex gap-2 items-center">
+            <input type="date" value={historyStartDate} onChange={e => setHistoryStartDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" />
+            <span className="text-slate-500">até</span>
+            <input type="date" value={historyEndDate} onChange={e => setHistoryEndDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+        )}
+      </div>
+
+      {/* Sub tabs */}
+      <div className="flex border-b border-slate-800 overflow-x-auto scrollbar-hide">
+        <button onClick={() => setSubTab('summary')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'summary' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Resumo e Pagamentos</button>
+        <button onClick={() => setSubTab('products')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'products' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Produtos Vendidos</button>
+        <button onClick={() => setSubTab('cashier')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'cashier' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Caixa (Abertura/Fecho)</button>
+        <button onClick={() => setSubTab('orders')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'orders' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Comandas</button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div></div>
+      ) : (
+        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
+          
+          {subTab === 'summary' && (
+             <div className="space-y-6">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                 <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl">
+                   <p className="text-sm text-slate-400">Total Faturado</p>
+                   <h3 className="text-3xl font-bold text-emerald-400 mt-1">R$ {Number(Object.values(paymentMethods).reduce((a:any,b:any)=>a+Number(b), 0)).toFixed(2)}</h3>
+                   <p className="text-xs text-slate-500 mt-1">{data.transactions?.length || 0} transações</p>
+                 </div>
+                 <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl">
+                   <p className="text-sm text-slate-400">Total de Pedidos</p>
+                   <h3 className="text-3xl font-bold text-blue-400 mt-1">{data.orders?.length || 0} comandas</h3>
+                 </div>
+                 <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl">
+                   <p className="text-sm text-slate-400">Produtos Vendidos</p>
+                   <h3 className="text-3xl font-bold text-purple-400 mt-1">{productSales.reduce((acc, p) => acc + p.quantity, 0)} unid.</h3>
+                 </div>
+               </div>
+
+               <h3 className="text-lg font-bold mt-8 border-b border-slate-800 pb-2">Formas de Pagamento</h3>
+               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                 {Object.entries(paymentMethods).map(([method, total]: [string, any]) => (
+                   <div key={method} className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+                     <p className="uppercase text-xs font-bold text-slate-400 mb-1">{method === 'cash' ? 'Dinheiro' : method}</p>
+                     <p className="text-xl font-bold text-emerald-400">R$ {Number(total).toFixed(2)}</p>
+                   </div>
+                 ))}
+                 {Object.keys(paymentMethods).length === 0 && <p className="text-slate-500 col-span-full">Nenhum pagamento registrado neste período.</p>}
+               </div>
+             </div>
+          )}
+
+          {subTab === 'products' && (
+             <div className="overflow-x-auto">
+               <table className="w-full text-left text-sm min-w-[600px]">
+                 <thead className="text-slate-400 uppercase bg-slate-800/50">
+                    <tr>
+                      <th className="px-4 py-3">Produto</th>
+                      <th className="px-4 py-3">Unidades Vendidas</th>
+                      <th className="px-4 py-3 text-right">Faturamento Bruto</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-800">
+                    {productSales.length === 0 && <tr><td colSpan={3} className="text-center py-6 text-slate-500">Nenhum produto vendido no período.</td></tr>}
+                    {productSales.map((p: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-slate-800/30">
+                        <td className="px-4 py-3 font-medium text-slate-200">{p.name}</td>
+                        <td className="px-4 py-3 text-slate-400">{p.quantity}</td>
+                        <td className="px-4 py-3 text-right text-emerald-400 font-bold">R$ {p.revenue.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                 </tbody>
+               </table>
+             </div>
+          )}
+
+          {subTab === 'cashier' && (
+             <div className="overflow-x-auto">
+               <table className="w-full text-left text-sm min-w-[800px]">
+                 <thead className="text-slate-400 uppercase bg-slate-800/50">
+                    <tr>
+                      <th className="px-4 py-3">Abertura</th>
+                      <th className="px-4 py-3">Fechamento</th>
+                      <th className="px-4 py-3 text-right">Saldo Inicial</th>
+                      <th className="px-4 py-3 text-right">Dinheiro Físico Estimado</th>
+                      <th className="px-4 py-3 text-right">Diferença/Sangria</th>
+                      <th className="px-4 py-3 text-right">Saldo Final da Gaveta</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-800">
+                    {data.cashier_sessions?.length === 0 && <tr><td colSpan={6} className="text-center py-6 text-slate-500">Nenhum histórico de caixa no período.</td></tr>}
+                    {data.cashier_sessions?.map((c: any, idx: number) => {
+                      const estimatedPhysical = Number(c.initial_balance || 0) + Number(c.total_cash_sales || 0);
+                      return (
+                        <tr key={idx} className="hover:bg-slate-800/30">
+                          <td className="px-4 py-3 font-medium text-slate-300">{new Date(c.opened_at).toLocaleString('pt-BR')}</td>
+                          <td className="px-4 py-3 text-slate-400">{c.closed_at ? new Date(c.closed_at).toLocaleString('pt-BR') : <span className="text-emerald-400 font-bold px-2 py-1 bg-emerald-500/20 rounded">EM ABERTO</span>}</td>
+                          <td className="px-4 py-3 text-slate-500 text-right">R$ {Number(c.initial_balance || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-blue-400 text-right">R$ {estimatedPhysical.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-amber-400 text-right">{c.closed_at ? `R$ ${Number(c.amortization || 0).toFixed(2)}` : '-'}</td>
+                          <td className="px-4 py-3 font-bold text-emerald-400 text-right">{c.closed_at ? `R$ ${Number(c.final_balance || 0).toFixed(2)}` : '-'}</td>
+                        </tr>
+                      );
+                    })}
+                 </tbody>
+               </table>
+             </div>
+          )}
+
+          {subTab === 'orders' && (
+             <div className="space-y-4">
+                 <div className="relative w-full max-w-sm mb-4">
+                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                   <input
+                     type="text"
+                     placeholder="Buscar comanda ou cliente..."
+                     value={searchTerm}
+                     onChange={(e) => setSearchTerm(e.target.value)}
+                     className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-slate-200"
+                   />
+                 </div>
+                 
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                     {filteredOrders.length === 0 && <div className="col-span-full py-6 text-center text-slate-500">Nenhuma comanda encontrada.</div>}
+                     {filteredOrders.map((order: any) => (
+                        <div key={order.id} onClick={() => setViewDetailsOrder(order)} className="bg-slate-800 border border-slate-700 p-4 rounded-xl hover:border-blue-500 transition-all cursor-pointer">
+                           <div className="flex justify-between items-start mb-2">
+                             <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded text-xs font-bold">#{order.pulseira}</span>
+                             <span className="text-slate-400 text-xs">{new Date(order.created_at).toLocaleString('pt-BR')}</span>
+                           </div>
+                           <h3 className="font-bold text-slate-200">{order.customer_name || 'Sem Nome'}</h3>
+                           
+                           <div className="mt-3 pt-3 border-t border-slate-700/50 flex justify-between items-center">
+                             <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${order.status === 'paid' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{order.status === 'paid' ? 'Pago' : 'Aguardando'}</span>
+                             <span className="font-bold text-emerald-400">R$ {order.items?.reduce((acc:any, i:any) => acc + (i.price_at_time * i.quantity), 0).toFixed(2)}</span>
+                           </div>
+                        </div>
+                     ))}
+                 </div>
+             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* Reused Order Details Modal for view only */}
+      {/* Order Details Modal */}
       {viewDetailsOrder && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -810,40 +932,28 @@ function History({ period, setPeriod, stats }: { period: 'daily' | 'weekly' | 'm
               <div>
                 <h3 className="text-xl font-bold text-white">Pedido #{viewDetailsOrder.pulseira}</h3>
                 <p className="text-slate-400">{viewDetailsOrder.customer_name}</p>
-                <p className="text-xs text-slate-500 mt-1">Fechado em: {new Date(viewDetailsOrder.closed_at || viewDetailsOrder.created_at).toLocaleString()}</p>
+                <p className="text-xs text-slate-500 mt-1">Status: {viewDetailsOrder.status === 'paid' ? `Fechado em: ${new Date(viewDetailsOrder.closed_at || viewDetailsOrder.created_at).toLocaleString()}` : 'Aberto'}</p>
               </div>
-              <button onClick={() => setViewDetailsOrder(null)} className="text-slate-400 hover:text-white">
-                <XCircle size={24} />
-              </button>
+              <button onClick={() => setViewDetailsOrder(null)} className="text-slate-400 hover:text-white"><XCircle size={24} /></button>
             </div>
-
             <div className="flex-1 overflow-y-auto space-y-2 mb-4 pr-2">
-              {viewDetailsOrder.items.map((item: any) => (
+              {viewDetailsOrder.items?.map((item: any) => (
                 <div key={item.id} className="flex justify-between items-center bg-slate-800/30 p-3 rounded-lg">
                   <div>
                     <p className="font-medium text-slate-200">{item.product_name || `Produto #${item.product_id}`}</p>
                     <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
                   </div>
-                  <p className="font-bold text-slate-300">
-                    R$ {(item.quantity * item.price_at_time).toFixed(2)}
-                  </p>
+                  <p className="font-bold text-slate-300">R$ {(item.quantity * item.price_at_time).toFixed(2)}</p>
                 </div>
               ))}
-              {viewDetailsOrder.items.length === 0 && (
-                <p className="text-center text-slate-500 py-4">Nenhum item neste pedido.</p>
-              )}
+              {(!viewDetailsOrder.items || viewDetailsOrder.items.length === 0) && <p className="text-center text-slate-500 py-4">Nenhum item neste pedido.</p>}
             </div>
-
             <div className="pt-4 border-t border-slate-800">
               <div className="flex justify-between items-center mb-4 text-lg">
-                <span className="text-slate-400">Total Pago</span>
-                <span className="font-bold text-emerald-400">
-                  R$ {totalViewDetails.toFixed(2)}
-                </span>
+                <span className="text-slate-400">Total</span>
+                <span className="font-bold text-emerald-400">R$ {totalViewDetails.toFixed(2)}</span>
               </div>
-              <button onClick={() => setViewDetailsOrder(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-colors">
-                Fechar
-              </button>
+              <button onClick={() => setViewDetailsOrder(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-colors">Fechar</button>
             </div>
           </div>
         </div>

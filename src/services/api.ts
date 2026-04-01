@@ -354,6 +354,36 @@ export const api = {
     };
   },
 
+  getGeneralHistory: async (startDate?: string, endDate?: string) => {
+    // Orders
+    let oq = supabase.from('orders').select('*, items:order_items(quantity, price_at_time, products(name))').order('created_at', { ascending: false });
+    if (startDate) oq = oq.gte('created_at', startDate);
+    if (endDate) oq = oq.lte('created_at', endDate);
+    // Hardcode exclusion of stubborn test orders
+    oq = oq.not('id', 'in', '(6,7)');
+    
+    // Transactions
+    let tq = supabase.from('transactions').select('*').order('created_at', { ascending: false });
+    if (startDate) tq = tq.gte('created_at', startDate);
+    if (endDate) tq = tq.lte('created_at', endDate);
+
+    // Cashier sessions
+    let cq = supabase.from('cashier_sessions').select('*').order('opened_at', { ascending: false });
+    if (startDate) cq = cq.gte('opened_at', startDate);
+    if (endDate) cq = cq.lte('opened_at', endDate);
+
+    const [ordersRes, transactionsRes, cashierRes] = await Promise.all([oq, tq, cq]);
+    if (ordersRes.error) throw ordersRes.error;
+    if (transactionsRes.error) throw transactionsRes.error;
+    if (cashierRes.error) throw cashierRes.error;
+
+    return {
+      orders: ordersRes.data || [],
+      transactions: transactionsRes.data || [],
+      cashier_sessions: cashierRes.data || []
+    };
+  },
+
   // Stats
   getStats: async (period: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'daily') => {
     const startDate = new Date();
