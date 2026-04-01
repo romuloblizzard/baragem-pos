@@ -115,6 +115,7 @@ function Categories() {
       id: editingCategory?.id,
       name: formData.get('name') as string,
       parent_id: parentIdVal ? Number(parentIdVal) : null,
+      show_on_waiter: formData.get('show_on_waiter') === 'true',
     };
     try {
       await api.saveCategory(data);
@@ -184,6 +185,10 @@ function Categories() {
                   <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
                     {children.length} {children.length === 1 ? 'subcategoria' : 'subcategorias'}
                   </span>
+                  {parent.show_on_waiter
+                    ? <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">👨‍🍳 Visível no garçom</span>
+                    : <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded-full">Oculto no garçom</span>
+                  }
                 </div>
                 <div className="flex items-center gap-1">
                   <button
@@ -217,6 +222,10 @@ function Categories() {
                         <div className="w-px h-4 bg-slate-700" />
                         <div className="w-1.5 h-1.5 rounded-full bg-slate-500" />
                         <span className="text-slate-300 text-sm">{child.name}</span>
+                        {child.show_on_waiter
+                          ? <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">👨‍🍳 Visível</span>
+                          : <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded-full">Oculto</span>
+                        }
                       </div>
                       <div className="flex items-center gap-1">
                         <button
@@ -303,6 +312,17 @@ function Categories() {
                     .map(p => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">Visibilidade no Garçom</label>
+                <select
+                  name="show_on_waiter"
+                  defaultValue={editingCategory ? String(editingCategory.show_on_waiter ?? true) : 'true'}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-slate-100"
+                >
+                  <option value="true">👨‍🍳 Visível no painel do garçom</option>
+                  <option value="false">🔒 Oculto no painel do garçom</option>
                 </select>
               </div>
               <div className="flex justify-end gap-3 pt-2">

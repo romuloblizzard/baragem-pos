@@ -14,7 +14,11 @@ export const api = {
     }));
   },
   saveCategory: async (category: any) => {
-    const payload: any = { name: category.name, parent_id: category.parent_id || null };
+    const payload: any = {
+      name: category.name,
+      parent_id: category.parent_id || null,
+      show_on_waiter: category.show_on_waiter ?? true,
+    };
     if (category.id) {
       const { data, error } = await supabase.from('categories').update(payload).eq('id', category.id).select().single();
       if (error) throw error;
