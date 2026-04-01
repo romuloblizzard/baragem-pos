@@ -1039,6 +1039,7 @@ function Products() {
   const [ingredients, setIngredients] = useState<any[]>([]);
   const [childProducts, setChildProducts] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [unselectedCategories, setUnselectedCategories] = useState<number[]>([]);
   
   // Sorting State
   const [sortField, setSortField] = useState<'name' | 'type' | 'category' | 'price' | 'stock'>('name');
@@ -1213,6 +1214,32 @@ function Products() {
         <Search className="absolute left-3 top-3.5 text-slate-500" size={20} />
       </div>
 
+      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+        <p className="text-sm font-medium text-slate-400 mb-3">Filtrar por Categoria:</p>
+        <div className="flex flex-wrap gap-3">
+          {categories.filter(c => !c.parent_id).map(cat => {
+            const isSelected = !unselectedCategories.includes(cat.id);
+            return (
+              <label key={cat.id} className="flex items-center gap-2 cursor-pointer bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-700/50 transition-colors">
+                <input 
+                  type="checkbox" 
+                  checked={isSelected}
+                  onChange={() => {
+                    if (isSelected) {
+                      setUnselectedCategories([...unselectedCategories, cat.id]);
+                    } else {
+                      setUnselectedCategories(unselectedCategories.filter(id => id !== cat.id));
+                    }
+                  }}
+                  className="rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
+                />
+                <span className="text-sm text-slate-200">{cat.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden overflow-x-auto">
         <table className="w-full text-left text-sm min-w-[800px]">
           <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
@@ -1238,6 +1265,16 @@ function Products() {
           <tbody className="divide-y divide-slate-800">
             {products.filter(p => {
               if (p.parent_id) return false;
+              
+              // Filter by unselected categories (including their children)
+              const disabledCategoryIds = unselectedCategories;
+              const disabledChildIds = categories.filter(c => c.parent_id && disabledCategoryIds.includes(c.parent_id)).map(c => c.id);
+              const allDisabledIds = [...disabledCategoryIds, ...disabledChildIds];
+              
+              if (p.category_id && allDisabledIds.includes(p.category_id)) {
+                return false;
+              }
+
               if (searchTerm) {
                 const term = searchTerm.toLowerCase();
                 const matchesName = p.name.toLowerCase().includes(term);
