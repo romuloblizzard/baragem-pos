@@ -14,6 +14,7 @@ export default function Waiter() {
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+  const [selectedSubCategory, setSelectedSubCategory] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -418,24 +419,33 @@ export default function Waiter() {
   const filteredProducts = products.filter(p => {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      // Mostra o produto se ele ou seu "pai" tiverem o nome da busca
+      // Bypasses hierarchy for quick search
       const matchName = p.name?.toLowerCase().includes(term);
       const isVariantMatching = p.parent_id && p.name?.toLowerCase().includes(term);
       const isParentMatching = !p.parent_id && p.name?.toLowerCase().includes(term);
-      // Aqui nós retornamos as variantes isoladas na tela quando match
       return matchName || isParentMatching || isVariantMatching;
     }
     
-    // Default view: ONLY show parents (hide variants from main list)
+    // Hide variations from main list
     if (p.parent_id) return false;
 
+    // Filter by Hierarchy
     if (selectedCategory !== null) {
-      const childIds = categories.filter(c => c.parent_id === selectedCategory).map(c => c.id);
-      if (p.category_id !== selectedCategory && !childIds.includes(p.category_id)) {
-        return false;
+      const sons = categories.filter(c => c.parent_id === selectedCategory);
+      const hasSons = sons.length > 0;
+
+      if (hasSons) {
+        // If has sons, must select one
+        if (selectedSubCategory === null) return false;
+        // Show only if belongs to selected subcategory
+        return p.category_id === selectedSubCategory;
+      } else {
+        // If Father has NO sons, show products directly under it
+        return p.category_id === selectedCategory;
       }
     }
-    return true;
+
+    return true; // Show all if no category selected
   });
 
   const swapFilteredProducts = products.filter(p => {
@@ -669,10 +679,13 @@ export default function Waiter() {
           </button>
         </div>
 
-        {/* Categories Filter */}
+        {/* Main Categories (Fathers) */}
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           <button
-            onClick={() => setSelectedCategory(null)}
+            onClick={() => {
+              setSelectedCategory(null);
+              setSelectedSubCategory(null);
+            }}
             className={`px-5 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${selectedCategory === null
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
               : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
@@ -686,13 +699,40 @@ export default function Waiter() {
             .map(cat => (
               <button
                 key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
+                onClick={() => {
+                  setSelectedCategory(cat.id);
+                  setSelectedSubCategory(null);
+                }}
                 className={`px-5 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${getCategoryColor(cat.name, selectedCategory === cat.id)}`}
               >
                 {cat.name}
               </button>
             ))}
         </div>
+
+        {/* Subcategories (Sons) - Only if Father has children */}
+        {selectedCategory && categories.filter(c => c.parent_id === selectedCategory).length > 0 && (
+          <div className="flex flex-col gap-2 -mt-2 animate-in slide-in-from-top-1 duration-200">
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest pl-1">Subcategorias:</p>
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              {categories
+                .filter(c => c.parent_id === selectedCategory)
+                .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+                .map(sub => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setSelectedSubCategory(sub.id)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${selectedSubCategory === sub.id
+                      ? 'bg-blue-600 border-blue-400 text-white shadow-lg'
+                      : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:bg-slate-800'
+                      }`}
+                  >
+                    {sub.name}
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
 
         {/* Product Search */}
         <div className="relative">
@@ -749,9 +789,14 @@ export default function Waiter() {
               </button>
             )
           })}
-          {filteredProducts.length === 0 && (
+          {filteredProducts.length === 0 && !searchTerm && selectedCategory && categories.filter(c => c.parent_id === selectedCategory).length > 0 && selectedSubCategory === null ? (
+             <div className="col-span-2 text-center py-12 bg-slate-900/30 border border-dashed border-slate-800 rounded-3xl animate-pulse">
+               <Filter className="mx-auto mb-3 text-slate-600" size={32} />
+               <p className="text-slate-400 font-medium italic">Selecione uma subcategoria...</p>
+             </div>
+          ) : filteredProducts.length === 0 && (
             <div className="col-span-2 text-center py-8 text-slate-500">
-              Nenhum produto encontrado nesta categoria.
+              {searchTerm ? 'Nenhum produto encontrado na busca.' : 'Nenhum produto encontrado nesta categoria.'}
             </div>
           )}
         </div>
