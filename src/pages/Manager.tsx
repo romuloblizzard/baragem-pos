@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
-  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X
+  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut
 } from 'lucide-react';
 
 export default function Manager() {
@@ -31,6 +31,21 @@ export default function Manager() {
       {/* Topbar */}
       <header className="sticky top-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 shrink-0">
+          <button 
+            onClick={async () => {
+              if (!confirm('Deseja realmente sair dessa conta?')) return;
+              try { await api.logout(localStorage.getItem('pos_employee_id') || undefined); } catch (e) {}
+              localStorage.removeItem('pos_role');
+              localStorage.removeItem('pos_employee_name');
+              localStorage.removeItem('pos_login_time');
+              localStorage.removeItem('pos_employee_id');
+              window.location.href = '/';
+            }}
+            className="p-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors" 
+            title="Sair / Trocar Usuário"
+          >
+            <LogOut size={20} />
+          </button>
           <Link to="/" className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors" title="Voltar ao Início">
             <Home size={20} />
           </Link>
@@ -2048,6 +2063,7 @@ function Products() {
 
 function Stock() {
   const [products, setProducts] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     api.getProducts().then(setProducts);
@@ -2060,11 +2076,25 @@ function Stock() {
     api.getProducts().then(setProducts);
   };
 
+  const filteredProducts = products.filter(p => !searchTerm || p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Controle de Estoque</h2>
+      <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+        <h2 className="text-2xl font-bold flex items-center gap-2"><Package className="text-blue-400" /> Controle de Estoque</h2>
+        <div className="relative w-full md:w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Buscar produto..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-slate-200"
+          />
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {products.map(product => (
+        {filteredProducts.map(product => (
           <div key={product.id} className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
             <div>
               <h3 className="font-bold text-slate-200">{product.name}</h3>

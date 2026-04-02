@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 
 import {
   Search, Plus, Minus, ShoppingCart, User, CreditCard,
-  ChevronLeft, Check, X, Home, Filter, List, PlusCircle, Trash2
+  ChevronLeft, Check, X, Home, Filter, List, PlusCircle, Trash2, LogOut
 } from 'lucide-react';
 
 export default function Waiter() {
@@ -405,7 +405,22 @@ export default function Waiter() {
   if (view === 'home') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-6 flex flex-col items-center justify-center relative">
-        <Link to="/" className="absolute top-6 left-6 p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors">
+        <button 
+          onClick={async () => {
+            if (!confirm('Deseja realmente sair dessa conta?')) return;
+            try { await api.logout(localStorage.getItem('pos_employee_id') || undefined); } catch (e) {}
+            localStorage.removeItem('pos_role');
+            localStorage.removeItem('pos_employee_name');
+            localStorage.removeItem('pos_login_time');
+            localStorage.removeItem('pos_employee_id');
+            window.location.href = '/';
+          }}
+          className="absolute top-6 right-6 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-colors"
+          title="Sair / Trocar Usuário"
+        >
+          <LogOut size={24} />
+        </button>
+        <Link to="/" className="absolute top-6 left-6 p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors" title="Início">
           <Home size={24} />
         </Link>
 
