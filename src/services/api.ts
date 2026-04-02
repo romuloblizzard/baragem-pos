@@ -316,6 +316,19 @@ export const api = {
     if (error) throw error;
     return { success: true };
   },
+  swapOrderItem: async (orderId: number, itemId: number, newProductId: number) => {
+    const { data: product, error: prodError } = await supabase.from('products').select('*').eq('id', newProductId).single();
+    if (prodError || !product) throw new Error('Product not found for swap');
+
+    const { error: updateError } = await supabase.from('order_items').update({
+       product_id: newProductId,
+       price_at_time: product.price,
+       cost_at_time: product.cost_price || 0
+    }).eq('id', itemId).eq('order_id', orderId);
+    
+    if (updateError) throw updateError;
+    return { success: true };
+  },
   payOrder: async (orderId: number, amount: number, method: string) => {
     const employee_id = localStorage.getItem('pos_employee_id');
     const { error: txError } = await supabase.from('transactions').insert({

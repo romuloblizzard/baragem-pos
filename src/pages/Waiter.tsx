@@ -19,6 +19,8 @@ export default function Waiter() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isConsumptionOpen, setIsConsumptionOpen] = useState(false);
+  const [itemToSwap, setItemToSwap] = useState<any>(null);
+  const [swapSearchTerm, setSwapSearchTerm] = useState('');
 
 
   // Customer Linking State
@@ -57,8 +59,32 @@ export default function Waiter() {
       setCurrentOrder(order);
       setView('order');
     } catch (err) {
-      // Order not found, open modal to create
       setIsModalOpen(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSwapItem = async (newProduct: any) => {
+    if (!itemToSwap || !currentOrder) return;
+    setIsLoading(true);
+    try {
+      if (newProduct.type === 'variable') {
+         alert('Para trocar, por favor selecione a variante final (sub-produto).');
+         setIsLoading(false);
+         return;
+      }
+      await api.swapOrderItem(currentOrder.id, itemToSwap.id, newProduct.id);
+      
+      setItemToSwap(null);
+      setSwapSearchTerm('');
+      
+      const updated = await api.getOrder(pulseira);
+      setCurrentOrder(updated);
+      alert('Produto trocado com sucesso!');
+    } catch(err) {
+      alert('Erro ao trocar produto.');
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -392,11 +418,17 @@ export default function Waiter() {
   const filteredProducts = products.filter(p => {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
+      // Mostra o produto se ele ou seu "pai" tiverem o nome da busca
       const matchName = p.name?.toLowerCase().includes(term);
-      const matchVariant = p.variants?.some((v: any) => v.name?.toLowerCase().includes(term));
-      return matchName || matchVariant;
+      const isVariantMatching = p.parent_id && p.name?.toLowerCase().includes(term);
+      const isParentMatching = !p.parent_id && p.name?.toLowerCase().includes(term);
+      // Aqui nós retornamos as variantes isoladas na tela quando match
+      return matchName || isParentMatching || isVariantMatching;
     }
     
+    // Default view: ONLY show parents (hide variants from main list)
+    if (p.parent_id) return false;
+
     if (selectedCategory !== null) {
       const childIds = categories.filter(c => c.parent_id === selectedCategory).map(c => c.id);
       if (p.category_id !== selectedCategory && !childIds.includes(p.category_id)) {
@@ -405,6 +437,17 @@ export default function Waiter() {
     }
     return true;
   });
+
+  const swapFilteredProducts = products.filter(p => {
+    if (swapSearchTerm) {
+      const term = swapSearchTerm.toLowerCase();
+      // Durante a troca, só mostramos os finais (simples/composition ou os próprios "sub-produtos" variaveis)
+      if (p.type === 'variable') return false; 
+      return p.name?.toLowerCase().includes(term);
+    }
+    // Mostra tudo se nao tiver pesquisa? Muito confuso. Devolve so os 20 primeiros
+    return !p.parent_id;
+  }).slice(0, 30);
 
   if (view === 'home') {
     return (
@@ -920,14 +963,22 @@ export default function Waiter() {
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-2">
               {currentOrder.items.map((item: any) => (
-                <div key={item.id} className="flex justify-between items-center bg-slate-800/30 p-3 rounded-lg">
+                <div key={item.id} className="flex justify-between items-center bg-slate-800/30 p-3 rounded-lg border border-slate-800/50">
                   <div>
                     <p className="font-medium text-slate-200">{item.product_name}</p>
-                    <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time.toFixed(2)}</p>
+                    <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
                   </div>
-                  <p className="font-bold text-slate-300">
-                    R$ {(item.quantity * item.price_at_time).toFixed(2)}
-                  </p>
+                  <div className="flex flex-col items-end">
+                    <p className="font-bold text-slate-300">
+                      R$ {((item.quantity || 0) * (item.price_at_time || 0)).toFixed(2)}
+                    </p>
+                    <button 
+                      onClick={() => setItemToSwap(item)} 
+                      className="mt-2 px-3 py-1 bg-blue-500/20 text-blue-400 hover:bg-blue-500 text-xs hover:text-white rounded transition-colors"
+                    >
+                      Trocar Produto
+                    </button>
+                  </div>
                 </div>
               ))}
               {currentOrder.items.length === 0 && (
@@ -947,6 +998,52 @@ export default function Waiter() {
         </div>
       )}
 
+      {/* Item Swap Modal */}
+      {itemToSwap && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="text-xl font-bold text-white">Trocar Produto</h3>
+                <p className="text-sm text-slate-400">Substituindo: <strong className="text-blue-400">{itemToSwap.product_name}</strong></p>
+              </div>
+              <button onClick={() => setItemToSwap(null)} className="text-slate-400 hover:text-white">
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="mb-4 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="Busque o novo produto (nome ou inicial)..."
+                value={swapSearchTerm}
+                onChange={(e) => setSwapSearchTerm(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-10 pr-4 py-3 text-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+              {swapFilteredProducts.map(product => (
+                <button
+                  key={product.id}
+                  onClick={() => handleSwapItem(product)}
+                  className="w-full flex justify-between items-center bg-slate-800/40 p-4 rounded-xl border border-slate-700 hover:border-emerald-500 transition-colors text-left"
+                >
+                  <div>
+                    <p className="font-bold text-slate-200">{product.name}</p>
+                    <p className="text-xs text-slate-400">{product.category_name}</p>
+                  </div>
+                  <span className="font-mono text-emerald-400 font-bold">R$ {product.price.toFixed(2)}</span>
+                </button>
+              ))}
+              {swapFilteredProducts.length === 0 && (
+                <p className="text-center text-slate-500 py-4">Nenhum produto encontrado...</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

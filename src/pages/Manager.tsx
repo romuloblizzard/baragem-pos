@@ -2077,11 +2077,12 @@ function Stock() {
   };
 
   const filteredProducts = products.filter(p => {
-    if (!searchTerm) return true;
+    if (!searchTerm) return !p.parent_id; // Default: show only parents
     const term = searchTerm.toLowerCase();
     const matchName = p.name?.toLowerCase().includes(term);
-    const matchVariant = p.variants?.some((v: any) => v.name?.toLowerCase().includes(term));
-    return matchName || matchVariant;
+    const isVariantMatching = p.parent_id && p.name?.toLowerCase().includes(term);
+    const isParentMatching = !p.parent_id && p.name?.toLowerCase().includes(term);
+    return matchName || isParentMatching || isVariantMatching;
   });
 
   return (
