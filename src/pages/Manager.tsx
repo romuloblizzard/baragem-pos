@@ -1733,12 +1733,12 @@ function Products() {
             className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
             title="Exportar para Excel"
           >
-            <Download size={18} /> Exportar
+            <Download size={18} /> 📥 Exportar
           </button>
           
           <label className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer">
             <Upload size={18} />
-            <span>{isImporting ? 'Importando...' : 'Importar'}</span>
+            <span>{isImporting ? 'Importando...' : '📤 Importar'}</span>
             <input 
               type="file" 
               accept=".xlsx, .xls, .csv" 
