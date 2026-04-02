@@ -3,8 +3,10 @@ import { api } from '../services/api';
 import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
-  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut
+  Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut,
+  FileSpreadsheet, Download, Upload
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const formatCategoryName = (name: string) => {
   if (!name) return '';
@@ -1019,7 +1021,7 @@ function History() {
                             await api.removeOrderItem(viewDetailsOrder.id, item.id);
                             const updated = await api.getOrder(viewDetailsOrder.pulseira);
                             setViewDetailsOrder(updated);
-                            api.getOrders('open').then(setOrders);
+                            loadData();
                           } catch (e) { alert('Erro ao remover item'); }
                         }}
                         className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
@@ -1466,6 +1468,110 @@ function Products() {
   const [childProducts, setChildProducts] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [unselectedCategories, setUnselectedCategories] = useState<number[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const exportProductsToExcel = () => {
+    // Collect all products including variations if possible
+    const exportData = products.map(p => ({
+      ID: p.id,
+      Nome: p.name,
+      Tipo: p.type === 'variable' ? 'Variável' : (p.type === 'composition' ? 'Composição' : 'Simples'),
+      Categoria: categories.find(c => c.id === p.category_id)?.name || '',
+      Preço: p.price || 0,
+      'Preço de Custo': p.cost_price || 0,
+      Estoque: p.stock || 0,
+      Unidade: p.unit || 'un',
+      Ativo: p.active ? 'S' : 'N'
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Produtos");
+    
+    // Set column widths
+    const wscols = [
+      { wch: 6 },  // ID
+      { wch: 30 }, // Nome
+      { wch: 12 }, // Tipo
+      { wch: 20 }, // Categoria
+      { wch: 10 }, // Preço
+      { wch: 12 }, // Custo
+      { wch: 10 }, // Estoque
+      { wch: 8 },  // Unid
+      { wch: 6 }   // Ativo
+    ];
+    worksheet['!cols'] = wscols;
+
+    XLSX.writeFile(workbook, `Baragem_Produtos_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        if (data.length === 0) {
+          alert('Arquivo vazio!');
+          setIsImporting(false);
+          return;
+        }
+
+        const categoryMap = new Map();
+        categories.forEach(c => categoryMap.set(c.name.toLowerCase().trim(), c.id));
+
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (const row of data as any[]) {
+          // Basic validation
+          if (!row.Nome) continue;
+
+          const productData: any = {
+            name: row.Nome,
+            price: parseFloat(row.Preço) || 0,
+            cost_price: parseFloat(row['Preço de Custo'] || row.Custo) || 0,
+            stock: parseFloat(row.Estoque) || 0,
+            unit: row.Unidade || 'un',
+            active: row.Ativo === 'S' || row.Ativo === 'Sim' || row.Ativo === true,
+            type: row.Tipo === 'Variável' ? 'variable' : (row.Tipo === 'Composição' ? 'composition' : 'simple'),
+            category_id: categoryMap.get(String(row.Categoria || '').toLowerCase().trim()) || categories[0]?.id
+          };
+
+          if (row.ID) {
+            productData.id = row.ID;
+          }
+
+          try {
+            await api.saveProduct(productData);
+            successCount++;
+          } catch (err) {
+            console.error(`Erro ao importar ${row.Nome}:`, err);
+            errorCount++;
+          }
+        }
+        
+        loadProducts();
+        alert(`Importação concluída!\nSucessos: ${successCount}\nErros: ${errorCount}`);
+      } catch (err) {
+        console.error('Erro na leitura do arquivo:', err);
+        alert('Erro ao processar o arquivo Excel.');
+      } finally {
+        setIsImporting(false);
+        // Clear input
+        e.target.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
   
   // Sorting State
   const [sortField, setSortField] = useState<'name' | 'type' | 'category' | 'price' | 'stock'>('name');
@@ -1619,14 +1725,36 @@ function Products() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Gerenciar Produtos</h2>
-        <button
-          onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
-          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
-        >
-          <Plus size={18} /> Novo Produto
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={exportProductsToExcel}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
+            title="Exportar para Excel"
+          >
+            <Download size={18} /> Exportar
+          </button>
+          
+          <label className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors cursor-pointer">
+            <Upload size={18} />
+            <span>{isImporting ? 'Importando...' : 'Importar'}</span>
+            <input 
+              type="file" 
+              accept=".xlsx, .xls, .csv" 
+              onChange={handleImportExcel} 
+              className="hidden" 
+              disabled={isImporting}
+            />
+          </label>
+
+          <button
+            onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
+          >
+            <Plus size={18} /> Novo Produto
+          </button>
+        </div>
       </div>
 
       <div className="relative">
