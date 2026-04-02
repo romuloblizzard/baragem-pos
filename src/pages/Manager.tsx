@@ -6,6 +6,11 @@ import {
   Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut
 } from 'lucide-react';
 
+const formatCategoryName = (name: string) => {
+  if (!name) return '';
+  return name.replace(/^[🟡🟢🔵🟠🟣🔴⚫]\s*(?:[0-9]+\.\s*)?/, '');
+};
+
 export default function Manager() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [stats, setStats] = useState({ totalRevenue: 0, openOrdersCount: 0, paidOrdersCount: 0 });
@@ -196,7 +201,7 @@ function Categories() {
               <div className="flex items-center justify-between px-5 py-4 bg-slate-800/40 border-b border-slate-800">
                 <div className="flex items-center gap-3">
                   <div className="w-2 h-2 rounded-full bg-blue-400" />
-                  <span className="font-bold text-slate-100 text-base">{parent.name}</span>
+                  <span className="font-bold text-slate-100 text-base">{formatCategoryName(parent.name)}</span>
                   <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
                     {children.length} {children.length === 1 ? 'subcategoria' : 'subcategorias'}
                   </span>
@@ -350,7 +355,7 @@ function Categories() {
                   {parentCategories
                     .filter(p => p.id !== editingCategory?.id)
                     .map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                      <option key={p.id} value={p.id}>{formatCategoryName(p.name)}</option>
                     ))}
                 </select>
               </div>
@@ -1935,7 +1940,9 @@ function Products() {
                 <label className="block text-sm font-medium text-slate-400 mb-1">Categoria</label>
                 <select name="category_id" defaultValue={editingProduct?.category_id} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
                   {categories.map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    <option key={cat.id} value={cat.id}>
+                      {cat.parent_name ? `${formatCategoryName(cat.parent_name)} > ${formatCategoryName(cat.name)}` : formatCategoryName(cat.name)}
+                    </option>
                   ))}
                 </select>
               </div>

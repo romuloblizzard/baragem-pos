@@ -632,6 +632,11 @@ export default function Waiter() {
     return isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700/50';
   };
 
+  const formatCategoryName = (name: string) => {
+    if (!name) return '';
+    return name.replace(/^[🟡🟢🔵🟠🟣🔴⚫]\s*(?:[0-9]+\.\s*)?/, '');
+  };
+
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-200 transition-[padding] duration-300 ${cart.length > 0 ? 'pb-[45vh]' : 'pb-24'}`}>
       {/* Header */}
@@ -684,7 +689,7 @@ export default function Waiter() {
               onClick={() => setSelectedCategory(cat.id)}
               className={`px-5 py-2.5 rounded-full text-sm whitespace-nowrap transition-all ${getCategoryColor(cat.name, selectedCategory === cat.id)}`}
             >
-              {cat.name}
+              {formatCategoryName(cat.name)}
             </button>
           ))}
         </div>
