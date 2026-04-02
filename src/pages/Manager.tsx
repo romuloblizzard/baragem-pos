@@ -314,6 +314,31 @@ function Categories() {
                   className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-slate-100"
                 />
               </div>
+              {!modalParentId && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">Cor de Destaque no Painel do Garçom</label>
+                  <div className="flex gap-2 mb-1">
+                    {['🟡', '🟢', '🔵', '🟠', '🟣', '🔴', '⚫'].map(emoji => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => {
+                           const input = document.querySelector('input[name="name"]') as HTMLInputElement;
+                           if (input) {
+                              const cleanName = input.value.replace(/^[🟡🟢🔵🟠🟣🔴⚫]\s*/, '');
+                              input.value = emoji + ' ' + cleanName;
+                           }
+                        }}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center bg-slate-800 border border-slate-700 hover:border-blue-500 hover:bg-slate-700 transition-colors text-lg shadow-sm"
+                        title="Atribuir esta cor à categoria"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500">Opcional. Adiciona a cor base para os botões e categorias estruturais.</p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">Categoria Pai <span className="text-slate-600">(opcional)</span></label>
                 <select

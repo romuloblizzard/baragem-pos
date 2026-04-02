@@ -619,6 +619,19 @@ export default function Waiter() {
   const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const currentTotal = currentOrder?.items?.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0) || 0;
 
+  const getCategoryColor = (name: string, isSelected: boolean) => {
+    if (!name) return isSelected ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400';
+    if (name.startsWith('🟡')) return isSelected ? 'bg-yellow-500 text-yellow-950 font-bold shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500/20';
+    if (name.startsWith('🟢')) return isSelected ? 'bg-emerald-500 text-emerald-950 font-bold shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 hover:bg-emerald-500/20';
+    if (name.startsWith('🔵')) return isSelected ? 'bg-blue-500 text-blue-950 font-bold shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 'bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20';
+    if (name.startsWith('🟠')) return isSelected ? 'bg-orange-500 text-orange-950 font-bold shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'bg-orange-500/10 text-orange-500 border border-orange-500/30 hover:bg-orange-500/20';
+    if (name.startsWith('🟣')) return isSelected ? 'bg-purple-500 text-purple-950 font-bold shadow-[0_0_15px_rgba(168,85,247,0.2)]' : 'bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20';
+    if (name.startsWith('🔴')) return isSelected ? 'bg-red-500 text-red-950 font-bold shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20';
+    if (name.startsWith('⚫')) return isSelected ? 'bg-slate-300 text-slate-900 font-bold shadow-[0_0_15px_rgba(203,213,225,0.2)]' : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700';
+    
+    return isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700/50';
+  };
+
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-200 transition-[padding] duration-300 ${cart.length > 0 ? 'pb-[45vh]' : 'pb-24'}`}>
       {/* Header */}
@@ -658,9 +671,9 @@ export default function Waiter() {
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           <button
             onClick={() => setSelectedCategory(null)}
-            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${selectedCategory === null
-              ? 'bg-blue-600 text-white'
-              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+            className={`px-5 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${selectedCategory === null
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
               }`}
           >
             Todos
@@ -669,10 +682,7 @@ export default function Waiter() {
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${selectedCategory === cat.id
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
-                }`}
+              className={`px-5 py-2.5 rounded-full text-sm whitespace-nowrap transition-all ${getCategoryColor(cat.name, selectedCategory === cat.id)}`}
             >
               {cat.name}
             </button>
