@@ -621,20 +621,17 @@ export default function Waiter() {
 
   const getCategoryColor = (name: string, isSelected: boolean) => {
     if (!name) return isSelected ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400';
-    if (name.startsWith('🟡')) return isSelected ? 'bg-yellow-500 text-yellow-950 font-bold shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500/20';
-    if (name.startsWith('🟢')) return isSelected ? 'bg-emerald-500 text-emerald-950 font-bold shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 hover:bg-emerald-500/20';
-    if (name.startsWith('🔵')) return isSelected ? 'bg-blue-500 text-blue-950 font-bold shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 'bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20';
-    if (name.startsWith('🟠')) return isSelected ? 'bg-orange-500 text-orange-950 font-bold shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'bg-orange-500/10 text-orange-500 border border-orange-500/30 hover:bg-orange-500/20';
-    if (name.startsWith('🟣')) return isSelected ? 'bg-purple-500 text-purple-950 font-bold shadow-[0_0_15px_rgba(168,85,247,0.2)]' : 'bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20';
-    if (name.startsWith('🔴')) return isSelected ? 'bg-red-500 text-red-950 font-bold shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20';
-    if (name.startsWith('⚫')) return isSelected ? 'bg-slate-300 text-slate-900 font-bold shadow-[0_0_15px_rgba(203,213,225,0.2)]' : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700';
-    
+    const n = name.toUpperCase();
+    // Mapear por nome limpo (sem emojis - já foram retirados do banco)
+    if (n.startsWith('COMIDA')) return isSelected ? 'bg-yellow-500 text-yellow-950 font-bold shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/20';
+    if (n.startsWith('BEBIDAS (ALC') || n === 'BEBIDAS (ALCOOL)') return isSelected ? 'bg-emerald-500 text-emerald-950 font-bold shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20';
+    if (n.startsWith('BEBIDAS (SEM') || n === 'BEBIDAS (SEM ALCOOL)') return isSelected ? 'bg-sky-500 text-sky-950 font-bold shadow-[0_0_15px_rgba(14,165,233,0.3)]' : 'bg-sky-500/10 text-sky-400 border border-sky-500/30 hover:bg-sky-500/20';
+    if (n.startsWith('CAIPIRIN')) return isSelected ? 'bg-lime-500 text-lime-950 font-bold shadow-[0_0_15px_rgba(132,204,22,0.3)]' : 'bg-lime-500/10 text-lime-400 border border-lime-500/30 hover:bg-lime-500/20';
+    if (n.startsWith('DRINK') || n.startsWith('DOSE')) return isSelected ? 'bg-orange-500 text-orange-950 font-bold shadow-[0_0_15px_rgba(249,115,22,0.3)]' : 'bg-orange-500/10 text-orange-400 border border-orange-500/30 hover:bg-orange-500/20';
+    if (n.startsWith('COMBO')) return isSelected ? 'bg-purple-500 text-purple-950 font-bold shadow-[0_0_15px_rgba(168,85,247,0.3)]' : 'bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20';
+    if (n.startsWith('GARRAFA')) return isSelected ? 'bg-red-500 text-red-950 font-bold shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20';
+    if (n.startsWith('LAZER') || n.startsWith('NARGU')) return isSelected ? 'bg-slate-300 text-slate-900 font-bold' : 'bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700';
     return isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700/50';
-  };
-
-  const formatCategoryName = (name: string) => {
-    if (!name) return '';
-    return name.replace(/^[🟡🟢🔵🟠🟣🔴⚫]\s*(?:[0-9]+\.\s*)?/, '');
   };
 
   return (
@@ -683,15 +680,18 @@ export default function Waiter() {
           >
             Todos
           </button>
-          {categories.filter(c => c.show_on_waiter !== false && !c.parent_id).map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-5 py-2.5 rounded-full text-sm whitespace-nowrap transition-all ${getCategoryColor(cat.name, selectedCategory === cat.id)}`}
-            >
-              {formatCategoryName(cat.name)}
-            </button>
-          ))}
+          {categories
+            .filter(c => c.show_on_waiter !== false && !c.parent_id)
+            .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+            .map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-5 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${getCategoryColor(cat.name, selectedCategory === cat.id)}`}
+              >
+                {cat.name}
+              </button>
+            ))}
         </div>
 
         {/* Product Search */}
@@ -977,25 +977,40 @@ export default function Waiter() {
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-              {currentOrder.items.map((item: any) => (
-                <div key={item.id} className="flex justify-between items-center bg-slate-800/30 p-3 rounded-lg border border-slate-800/50">
-                  <div>
-                    <p className="font-medium text-slate-200">{item.product_name}</p>
-                    <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <p className="font-bold text-slate-300">
-                      R$ {((item.quantity || 0) * (item.price_at_time || 0)).toFixed(2)}
-                    </p>
-                    <button 
-                      onClick={() => setItemToSwap(item)} 
-                      className="mt-2 px-3 py-1 bg-blue-500/20 text-blue-400 hover:bg-blue-500 text-xs hover:text-white rounded transition-colors"
-                    >
-                      Trocar Produto
-                    </button>
-                  </div>
-                </div>
-              ))}
+              {(() => {
+                const items = currentOrder.items;
+                const lastTwoIds = new Set(
+                  [...items]
+                    .sort((a: any, b: any) => b.id - a.id)
+                    .slice(0, 2)
+                    .map((i: any) => i.id)
+                );
+                return items.map((item: any) => {
+                  const isRecent = lastTwoIds.has(item.id);
+                  return (
+                    <div key={item.id} className={`flex justify-between items-center p-3 rounded-lg border ${isRecent ? 'bg-blue-500/5 border-blue-500/20' : 'bg-slate-800/30 border-slate-800/50'}`}>
+                      <div>
+                        <p className="font-medium text-slate-200">{item.product_name}</p>
+                        <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
+                        {isRecent && <span className="text-xs text-blue-400">recente</span>}
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <p className="font-bold text-slate-300">
+                          R$ {((item.quantity || 0) * (item.price_at_time || 0)).toFixed(2)}
+                        </p>
+                        {isRecent && (
+                          <button
+                            onClick={() => setItemToSwap(item)}
+                            className="px-3 py-1 bg-blue-500/20 text-blue-400 hover:bg-blue-500 text-xs hover:text-white rounded transition-colors"
+                          >
+                            Trocar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
               {currentOrder.items.length === 0 && (
                 <p className="text-center text-slate-500 py-8">Nenhum item consumido ainda.</p>
               )}

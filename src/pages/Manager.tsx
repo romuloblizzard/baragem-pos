@@ -193,7 +193,9 @@ function Categories() {
           </div>
         )}
 
-        {parentCategories.map(parent => {
+        {parentCategories
+          .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+          .map(parent => {
           const children = childCategories.filter(c => c.parent_id === parent.id);
           return (
             <div key={parent.id} className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
@@ -573,9 +575,28 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
                     <p className="font-medium text-slate-200">{item.product_name}</p>
                     <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time.toFixed(2)}</p>
                   </div>
-                  <p className="font-bold text-slate-300">
-                    R$ {(item.quantity * item.price_at_time).toFixed(2)}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <p className="font-bold text-slate-300">
+                      R$ {(item.quantity * item.price_at_time).toFixed(2)}
+                    </p>
+                    {viewDetailsOrder.status !== 'paid' && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Remover "${item.product_name}" da comanda?`)) return;
+                          try {
+                            await api.removeOrderItem(viewDetailsOrder.id, item.id);
+                            const updated = await api.getOrder(viewDetailsOrder.pulseira);
+                            setViewDetailsOrder(updated);
+                            api.getOrders('open').then(setOrders);
+                          } catch (e) { alert('Erro ao remover item'); }
+                        }}
+                        className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Remover item"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               {viewDetailsOrder.items.length === 0 && (
@@ -988,7 +1009,26 @@ function History() {
                     <p className="font-medium text-slate-200">{item.product_name || `Produto #${item.product_id}`}</p>
                     <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
                   </div>
-                  <p className="font-bold text-slate-300">R$ {(item.quantity * item.price_at_time).toFixed(2)}</p>
+                  <div className="flex items-center gap-3">
+                    <p className="font-bold text-slate-300">R$ {(item.quantity * item.price_at_time).toFixed(2)}</p>
+                    {viewDetailsOrder.status !== 'paid' && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Remover "${item.product_name}" da comanda?`)) return;
+                          try {
+                            await api.removeOrderItem(viewDetailsOrder.id, item.id);
+                            const updated = await api.getOrder(viewDetailsOrder.pulseira);
+                            setViewDetailsOrder(updated);
+                            api.getOrders('open').then(setOrders);
+                          } catch (e) { alert('Erro ao remover item'); }
+                        }}
+                        className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Remover item"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               {(!viewDetailsOrder.items || viewDetailsOrder.items.length === 0) && <p className="text-center text-slate-500 py-4">Nenhum item neste pedido.</p>}
