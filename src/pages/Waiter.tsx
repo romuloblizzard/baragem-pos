@@ -390,9 +390,10 @@ export default function Waiter() {
   };
 
   const filteredProducts = products.filter(p => {
-    if (searchTerm && !p.name.toLowerCase().includes(searchTerm.toLowerCase())) {
-      return false;
+    if (searchTerm) {
+      return p.name.toLowerCase().includes(searchTerm.toLowerCase());
     }
+    
     if (selectedCategory !== null) {
       const childIds = categories.filter(c => c.parent_id === selectedCategory).map(c => c.id);
       if (p.category_id !== selectedCategory && !childIds.includes(p.category_id)) {
