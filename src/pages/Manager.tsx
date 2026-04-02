@@ -2076,7 +2076,13 @@ function Stock() {
     api.getProducts().then(setProducts);
   };
 
-  const filteredProducts = products.filter(p => !searchTerm || p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredProducts = products.filter(p => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    const matchName = p.name?.toLowerCase().includes(term);
+    const matchVariant = p.variants?.some((v: any) => v.name?.toLowerCase().includes(term));
+    return matchName || matchVariant;
+  });
 
   return (
     <div className="space-y-6">

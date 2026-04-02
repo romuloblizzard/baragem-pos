@@ -391,7 +391,10 @@ export default function Waiter() {
 
   const filteredProducts = products.filter(p => {
     if (searchTerm) {
-      return p.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const term = searchTerm.toLowerCase();
+      const matchName = p.name?.toLowerCase().includes(term);
+      const matchVariant = p.variants?.some((v: any) => v.name?.toLowerCase().includes(term));
+      return matchName || matchVariant;
     }
     
     if (selectedCategory !== null) {
