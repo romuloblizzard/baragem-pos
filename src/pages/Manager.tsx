@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
   Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut,
-  FileSpreadsheet, Download, Upload
+  FileSpreadsheet, Download, Upload, TableProperties
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -760,6 +760,48 @@ function History() {
   const [searchTerm, setSearchTerm] = useState('');
   const [viewDetailsOrder, setViewDetailsOrder] = useState<any>(null);
 
+  // Detailed View State
+  const [isDetailedView, setIsDetailedView] = useState(false);
+  const [drillDownModal, setDrillDownModal] = useState<{type: 'day' | 'gross' | 'cmv' | 'net', date: string, data: any} | null>(null);
+
+  // Daily Stats grouping
+  const dailyStats = useMemo(() => {
+    const statsMap: Record<string, any> = ({});
+    
+    data.orders.forEach((order: any) => {
+      const date = new Date(order.created_at).toLocaleDateString('pt-BR');
+      if (!statsMap[date]) statsMap[date] = { date, gross: 0, cmv: 0, orders: [], items: [], transactions: [] };
+      
+      let orderGross = 0;
+      let orderCmv = 0;
+      order.items?.forEach((item: any) => {
+        const itemGross = (item.quantity || 0) * (item.price_at_time || 0);
+        const itemCmv = (item.quantity || 0) * (item.cost_at_time || 0);
+        orderGross += itemGross;
+        orderCmv += itemCmv;
+        statsMap[date].items.push({ ...item, waiter: order.waiter?.name || 'Sistema', pulseira: order.pulseira });
+      });
+      
+      statsMap[date].gross += orderGross;
+      statsMap[date].cmv += orderCmv;
+      statsMap[date].orders.push(order);
+    });
+
+    data.transactions.forEach((tx: any) => {
+      const dateString = new Date(tx.created_at).toLocaleDateString('pt-BR');
+      if (statsMap[dateString]) {
+         statsMap[dateString].transactions.push(tx);
+      }
+    });
+
+    return Object.values(statsMap).sort((a: any, b: any) => {
+        const [da, ma, ya] = a.date.split('/');
+        const [db, mb, yb] = b.date.split('/');
+        return new Date(`${ya}-${ma}-${da}`).getTime() - new Date(`${yb}-${mb}-${db}`).getTime();
+    }).reverse();
+  }, [data]);
+
+
   useEffect(() => {
     loadData();
   }, [historyPeriod, historyStartDate, historyEndDate]);
@@ -811,7 +853,7 @@ function History() {
   // 2. Products Sold: iterate orders -> items -> group by product_name
   const productSalesMap = data.orders?.reduce((acc: any, order: any) => {
     order.items?.forEach((item: any) => {
-       const name = item.product_name || `ID ${item.product_id}`;
+       const name = item.products?.name || `ID ${item.product_id}`;
        if (!acc[name]) acc[name] = { quantity: 0, revenue: 0 };
        acc[name].quantity += item.quantity;
        acc[name].revenue += item.quantity * item.price_at_time;
@@ -844,7 +886,14 @@ function History() {
         <div className="flex bg-slate-800 rounded-lg p-1">
           <button onClick={() => setHistoryPeriod('today')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'today' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Hoje</button>
           <button onClick={() => setHistoryPeriod('month')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'month' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Este Mês</button>
-          <button onClick={() => setHistoryPeriod('custom')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'custom' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Personalizado</button>
+          <button onClick={() => { setHistoryPeriod('custom'); setIsDetailedView(false); }} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'custom' && !isDetailedView ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Personalizado</button>
+          <button 
+            onClick={() => setIsDetailedView(!isDetailedView)} 
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${isDetailedView ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+            title="Histórico Detalhado de Vendas"
+          >
+            <TableProperties size={18} /> Histórico
+          </button>
         </div>
 
         {historyPeriod === 'custom' && (
@@ -857,18 +906,69 @@ function History() {
       </div>
 
       {/* Sub tabs */}
-      <div className="flex border-b border-slate-800 overflow-x-auto scrollbar-hide">
-        <button onClick={() => setSubTab('summary')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'summary' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Resumo e Pagamentos</button>
-        <button onClick={() => setSubTab('products')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'products' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Produtos Vendidos</button>
-        <button onClick={() => setSubTab('cashier')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'cashier' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Caixa (Abertura/Fecho)</button>
-        <button onClick={() => setSubTab('orders')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'orders' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Comandas</button>
-      </div>
+      {!isDetailedView && (
+        <div className="flex border-b border-slate-800 overflow-x-auto scrollbar-hide">
+          <button onClick={() => setSubTab('summary')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'summary' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Resumo e Pagamentos</button>
+          <button onClick={() => setSubTab('products')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'products' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Produtos Vendidos</button>
+          <button onClick={() => setSubTab('cashier')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'cashier' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Caixa (Abertura/Fecho)</button>
+          <button onClick={() => setSubTab('orders')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'orders' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Comandas</button>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div></div>
       ) : (
         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
           
+          {isDetailedView ? (
+             <div className="overflow-x-auto">
+               <table className="w-full text-left text-sm min-w-[800px]">
+                 <thead className="text-slate-400 uppercase bg-slate-800/50">
+                    <tr>
+                      <th className="px-4 py-3">Dia (Data)</th>
+                      <th className="px-4 py-3 text-right">Vendido Bruto</th>
+                      <th className="px-4 py-3 text-right">CMV</th>
+                      <th className="px-4 py-3 text-right">Valor Líquido (Lucro)</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-800">
+                    {dailyStats.length === 0 && <tr><td colSpan={4} className="text-center py-6 text-slate-500">Nenhuma movimentação no período.</td></tr>}
+                    {dailyStats.map((day: any) => {
+                      const net = day.gross - day.cmv;
+                      return (
+                        <tr key={day.date} className="hover:bg-slate-800/30 transition-colors">
+                          <td 
+                            onClick={() => setDrillDownModal({ type: 'day', date: day.date, data: day.orders })}
+                            className="px-4 py-4 text-blue-400 font-medium cursor-pointer hover:underline"
+                          >
+                            {day.date}
+                          </td>
+                          <td 
+                            onClick={() => setDrillDownModal({ type: 'gross', date: day.date, data: day.items })}
+                            className="px-4 py-4 text-right text-emerald-400 font-bold cursor-pointer hover:bg-emerald-500/10"
+                          >
+                            R$ {day.gross.toFixed(2)}
+                          </td>
+                          <td 
+                             onClick={() => setDrillDownModal({ type: 'cmv', date: day.date, data: day.items })}
+                             className="px-4 py-4 text-right text-amber-400 font-medium cursor-pointer hover:bg-amber-500/10"
+                          >
+                            R$ {day.cmv.toFixed(2)}
+                          </td>
+                          <td 
+                             onClick={() => setDrillDownModal({ type: 'net', date: day.date, data: { transactions: day.transactions } })}
+                             className="px-4 py-4 text-right text-purple-400 font-bold cursor-pointer hover:bg-purple-500/10"
+                          >
+                            R$ {net.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                 </tbody>
+               </table>
+             </div>
+          ) : (
+            <>
           {subTab === 'summary' && (
              <div className="space-y-6">
                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -989,6 +1089,8 @@ function History() {
                  </div>
              </div>
           )}
+            </>
+          )}
         </div>
       )}
 
@@ -1008,7 +1110,7 @@ function History() {
               {viewDetailsOrder.items?.map((item: any) => (
                 <div key={item.id} className="flex justify-between items-center bg-slate-800/30 p-3 rounded-lg">
                   <div>
-                    <p className="font-medium text-slate-200">{item.product_name || `Produto #${item.product_id}`}</p>
+                    <p className="font-medium text-slate-200">{item.products?.name || `Produto #${item.product_id}`}</p>
                     <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -1041,6 +1143,137 @@ function History() {
                 <span className="font-bold text-emerald-400">R$ {totalViewDetails.toFixed(2)}</span>
               </div>
               <button onClick={() => setViewDetailsOrder(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-colors">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detailed History Drill-down Modal */}
+      {drillDownModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  {drillDownModal.type === 'day' && 'Detalhes do Dia'}
+                  {drillDownModal.type === 'gross' && 'Vendas Brutas (Itens)'}
+                  {drillDownModal.type === 'cmv' && 'Custo de Mercadoria (CMV)'}
+                  {drillDownModal.type === 'net' && 'Fluxo Financeiro'}
+                </h3>
+                <p className="text-slate-400 text-sm font-medium">{drillDownModal.date}</p>
+              </div>
+              <button 
+                onClick={() => setDrillDownModal(null)} 
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+              {drillDownModal.type === 'day' && (
+                <div className="space-y-3">
+                  {drillDownModal.data.map((order: any) => (
+                    <div key={order.id} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 flex justify-between items-center hover:bg-slate-800 transition-colors">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                            <span className="text-slate-200 font-bold">#{order.pulseira}</span>
+                            <span className="text-xs text-slate-500">{new Date(order.created_at).toLocaleTimeString()}</span>
+                        </div>
+                        <p className="text-sm text-slate-400">Garçom: <span className="text-blue-400">{order.waiter?.name || 'Sistema'}</span></p>
+                      </div>
+                      <span className="text-lg font-bold text-emerald-400">R$ {order.items?.reduce((acc: number, i: any) => acc + (i.price_at_time * (i.quantity || 0)), 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  {drillDownModal.data.length === 0 && <p className="text-center py-10 text-slate-500">Nenhum registro encontrado.</p>}
+                </div>
+              )}
+
+              {drillDownModal.type === 'gross' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="text-slate-500 border-b border-slate-800">
+                      <tr>
+                        <th className="py-2 pb-4">Item</th>
+                        <th className="py-2 pb-4 text-center">Qtd</th>
+                        <th className="py-2 pb-4 text-right">Unitário</th>
+                        <th className="py-2 pb-4 text-right">Subtotal</th>
+                        <th className="py-2 pb-4 text-right">Garçom</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {drillDownModal.data.map((item: any, i: number) => (
+                        <tr key={i} className="hover:bg-slate-800/20 transition-colors">
+                          <td className="py-3 text-slate-200 font-medium">{item.products?.name || `ID ${item.product_id}`}</td>
+                          <td className="py-3 text-center">{item.quantity}</td>
+                          <td className="py-3 text-right text-slate-400">R$ {Number(item.price_at_time).toFixed(2)}</td>
+                          <td className="py-3 text-right font-bold text-emerald-400">R$ {((item.quantity || 0) * (item.price_at_time || 0)).toFixed(2)}</td>
+                          <td className="py-3 text-right text-xs text-slate-500">{item.waiter}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {drillDownModal.type === 'cmv' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="text-slate-500 border-b border-slate-800">
+                      <tr>
+                        <th className="py-2 pb-4">Item</th>
+                        <th className="py-2 pb-4 text-center">Qtd</th>
+                        <th className="py-2 pb-4 text-right">Custo Unit.</th>
+                        <th className="py-2 pb-4 text-right">Custo Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {drillDownModal.data.map((item: any, i: number) => (
+                        <tr key={i} className="hover:bg-slate-800/20 transition-colors">
+                          <td className="py-3 text-slate-200 font-medium">{item.products?.name || `ID ${item.product_id}`}</td>
+                          <td className="py-3 text-center">{item.quantity}</td>
+                          <td className="py-3 text-right text-slate-400">R$ {Number(item.cost_at_time || 0).toFixed(2)}</td>
+                          <td className="py-3 text-right font-bold text-amber-500">R$ {((item.quantity || 0) * (item.cost_at_time || 0)).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {drillDownModal.type === 'net' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                     {['pix', 'card', 'cash'].map((method: any) => {
+                       const amount = drillDownModal.data.transactions
+                         .filter((t: any) => t.method === method)
+                         .reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+                       return (
+                         <div key={method} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
+                           <p className="text-slate-500 text-xs uppercase font-bold mb-1">{method === 'pix' ? 'PIX' : method === 'card' ? 'Cartão' : 'Dinheiro'}</p>
+                           <p className="text-xl font-bold text-white">R$ {amount.toFixed(2)}</p>
+                         </div>
+                       );
+                     })}
+                  </div>
+                  <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl space-y-3">
+                     <p className="text-xs text-blue-400 font-bold uppercase tracking-wider">Resumo Financeiro</p>
+                     <div className="flex justify-between items-center text-slate-300">
+                        <span className="text-sm">Total de Entradas:</span>
+                        <span className="font-bold text-emerald-400">R$ {drillDownModal.data.transactions.reduce((acc: number, t:any) => acc + Number(t.amount || 0), 0).toFixed(2)}</span>
+                     </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 pt-4 border-t border-slate-800 flex justify-end">
+              <button 
+                onClick={() => setDrillDownModal(null)} 
+                className="px-8 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-colors"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

@@ -369,7 +369,7 @@ export const api = {
 
   getGeneralHistory: async (startDate?: string, endDate?: string) => {
     // Orders
-    let oq = supabase.from('orders').select('*, items:order_items(quantity, price_at_time, products(name))').order('created_at', { ascending: false });
+    let oq = supabase.from('orders').select('*, waiter:employees(name), items:order_items(*, products(name))').order('created_at', { ascending: false });
     if (startDate) oq = oq.gte('created_at', startDate);
     if (endDate) oq = oq.lte('created_at', endDate);
     // Hardcode exclusion of stubborn test orders
