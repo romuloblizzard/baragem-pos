@@ -1195,20 +1195,24 @@ function History() {
                     <thead className="text-slate-500 border-b border-slate-800">
                       <tr>
                         <th className="py-2 pb-4">Item</th>
-                        <th className="py-2 pb-4 text-center">Qtd</th>
-                        <th className="py-2 pb-4 text-right">Unitário</th>
-                        <th className="py-2 pb-4 text-right">Subtotal</th>
-                        <th className="py-2 pb-4 text-right">Garçom</th>
+                        <th className="py-2 pb-4 text-center">Qtd Total</th>
+                        <th className="py-2 pb-4 text-right">Vlr. Unitário</th>
+                        <th className="py-2 pb-4 text-right">Faturamento</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
-                      {drillDownModal.data.map((item: any, i: number) => (
+                      {Object.values(drillDownModal.data.reduce((acc: any, item: any) => {
+                        const name = item.products?.name || `ID ${item.product_id}`;
+                        if (!acc[name]) acc[name] = { name, quantity: 0, total: 0, price: item.price_at_time };
+                        acc[name].quantity += Number(item.quantity || 0);
+                        acc[name].total += Number(item.quantity || 0) * Number(item.price_at_time || 0);
+                        return acc;
+                      }, {})).sort((a: any, b: any) => b.total - a.total).map((group: any, i: number) => (
                         <tr key={i} className="hover:bg-slate-800/20 transition-colors">
-                          <td className="py-3 text-slate-200 font-medium">{item.products?.name || `ID ${item.product_id}`}</td>
-                          <td className="py-3 text-center">{item.quantity}</td>
-                          <td className="py-3 text-right text-slate-400">R$ {Number(item.price_at_time).toFixed(2)}</td>
-                          <td className="py-3 text-right font-bold text-emerald-400">R$ {((item.quantity || 0) * (item.price_at_time || 0)).toFixed(2)}</td>
-                          <td className="py-3 text-right text-xs text-slate-500">{item.waiter}</td>
+                          <td className="py-3 text-slate-200 font-medium">{group.name}</td>
+                          <td className="py-3 text-center font-bold text-blue-400">{group.quantity}</td>
+                          <td className="py-3 text-right text-slate-400">R$ {Number(group.price || 0).toFixed(2)}</td>
+                          <td className="py-3 text-right font-bold text-emerald-400">R$ {group.total.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1222,18 +1226,24 @@ function History() {
                     <thead className="text-slate-500 border-b border-slate-800">
                       <tr>
                         <th className="py-2 pb-4">Item</th>
-                        <th className="py-2 pb-4 text-center">Qtd</th>
+                        <th className="py-2 pb-4 text-center">Qtd Total</th>
                         <th className="py-2 pb-4 text-right">Custo Unit.</th>
                         <th className="py-2 pb-4 text-right">Custo Total</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
-                      {drillDownModal.data.map((item: any, i: number) => (
+                      {Object.values(drillDownModal.data.reduce((acc: any, item: any) => {
+                        const name = item.products?.name || `ID ${item.product_id}`;
+                        if (!acc[name]) acc[name] = { name, quantity: 0, total: 0, cost: item.cost_at_time || 0 };
+                        acc[name].quantity += Number(item.quantity || 0);
+                        acc[name].total += Number(item.quantity || 0) * Number(item.cost_at_time || 0);
+                        return acc;
+                      }, {})).sort((a: any, b: any) => b.total - a.total).map((group: any, i: number) => (
                         <tr key={i} className="hover:bg-slate-800/20 transition-colors">
-                          <td className="py-3 text-slate-200 font-medium">{item.products?.name || `ID ${item.product_id}`}</td>
-                          <td className="py-3 text-center">{item.quantity}</td>
-                          <td className="py-3 text-right text-slate-400">R$ {Number(item.cost_at_time || 0).toFixed(2)}</td>
-                          <td className="py-3 text-right font-bold text-amber-500">R$ {((item.quantity || 0) * (item.cost_at_time || 0)).toFixed(2)}</td>
+                          <td className="py-3 text-slate-200 font-medium">{group.name}</td>
+                          <td className="py-3 text-center font-bold text-blue-400">{group.quantity}</td>
+                          <td className="py-3 text-right text-slate-400">R$ {Number(group.cost || 0).toFixed(2)}</td>
+                          <td className="py-3 text-right font-bold text-amber-500">R$ {group.total.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
