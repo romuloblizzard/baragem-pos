@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
   Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut,
-  FileSpreadsheet, Download, Upload, TableProperties
+  FileSpreadsheet, Download, Upload, TableProperties, Calculator
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -1712,7 +1712,7 @@ function Products() {
   const [searchTerm, setSearchTerm] = useState('');
   const [unselectedCategories, setUnselectedCategories] = useState<number[]>([]);
   const [isImporting, setIsImporting] = useState(false);
-  const [stockVariations, setStockVariations] = useState<{ id: string, quantity: number, label: string, unitSize: number, packagePrice: number }[]>([]);
+  const [stockVariations, setStockVariations] = useState<{ id: string, qty: number, size: number, totalPrice: number }[]>([]);
 
   const exportProductsToExcel = () => {
     // Collect all products including variations if possible
@@ -2350,130 +2350,151 @@ function Products() {
                 </div>
               )}
 
-              {/* Stock Calculator for Simple Products */}
+              {/* Stock Calculator for Simple Products (Spreadsheet style) */}
               {productType === 'simple' && (
-                <div className="mt-4 p-4 bg-slate-800/40 border border-slate-700 rounded-2xl space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h4 className="text-sm font-bold text-blue-400 flex items-center gap-2">
-                       <Package size={16} /> Calculadora de Variedades de Estoque
+                <div className="mt-6 border border-slate-700 rounded-2xl overflow-hidden bg-slate-900/40">
+                  <div className="p-3 bg-slate-800/60 border-b border-slate-700 flex justify-between items-center">
+                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                       <Calculator size={14} className="text-blue-400" /> Calculadora de Entradas / Compras
                     </h4>
                     <button
                       type="button"
-                      onClick={() => setStockVariations([...stockVariations, { id: Math.random().toString(), quantity: 1, label: '', unitSize: 1, packagePrice: 0 }])}
-                      className="text-xs bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                      onClick={() => setStockVariations([...stockVariations, { id: Math.random().toString(), qty: 1, size: 1, totalPrice: 0 }])}
+                      className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg font-bold transition-all shadow-lg shadow-blue-900/30 flex items-center gap-1"
                     >
-                      <Plus size={14} /> Adicionar Pacote
+                      <Plus size={12} /> Adicionar Lote
                     </button>
                   </div>
 
-                  <div className="space-y-3">
-                    {stockVariations.map((v, idx) => (
-                      <div key={v.id} className="grid grid-cols-12 gap-2 items-end bg-slate-900/30 p-2 rounded-xl border border-slate-800/50">
-                        <div className="col-span-2">
-                          <label className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Qtd</label>
-                          <input
-                            type="number"
-                            value={v.quantity}
-                            onChange={(e) => {
-                              const newVars = [...stockVariations];
-                              newVars[idx].quantity = parseFloat(e.target.value) || 0;
-                              setStockVariations(newVars);
-                            }}
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 text-white"
-                          />
-                        </div>
-                        <div className="col-span-3">
-                          <label className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Unid/Tipo</label>
-                          <input
-                            type="text"
-                            value={v.label}
-                            placeholder="ex: garrafa, pct"
-                            onChange={(e) => {
-                              const newVars = [...stockVariations];
-                              newVars[idx].label = e.target.value;
-                              setStockVariations(newVars);
-                            }}
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 text-white"
-                          />
-                        </div>
-                        <div className="col-span-3">
-                          <label className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Conteúdo</label>
-                          <input
-                            type="number"
-                            value={v.unitSize}
-                            onChange={(e) => {
-                              const newVars = [...stockVariations];
-                              newVars[idx].unitSize = parseFloat(e.target.value) || 0;
-                              setStockVariations(newVars);
-                            }}
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 text-white"
-                          />
-                        </div>
-                        <div className="col-span-3">
-                          <label className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Preço R$</label>
-                          <input
-                            type="number"
-                            value={v.packagePrice}
-                            onChange={(e) => {
-                              const newVars = [...stockVariations];
-                              newVars[idx].packagePrice = parseFloat(e.target.value) || 0;
-                              setStockVariations(newVars);
-                            }}
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 text-white"
-                          />
-                        </div>
-                        <div className="col-span-1 flex justify-center pb-1">
-                          <button
-                            type="button"
-                            onClick={() => setStockVariations(stockVariations.filter((_, i) => i !== idx))}
-                            className="text-red-500 hover:text-red-400 p-1"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-
-                    {stockVariations.length > 0 && (
-                      <div className="pt-2 mt-2 border-t border-slate-700/50 flex flex-col gap-2">
-                        <div className="flex justify-between text-xs text-slate-400">
-                          <span>Estoque Total: <strong className="text-emerald-400">{stockVariations.reduce((acc, v) => acc + (v.quantity * v.unitSize), 0).toFixed(3)}</strong></span>
-                          <span>Custo Unit. Médio: <strong className="text-blue-400">R$ {
-                            (stockVariations.reduce((acc, v) => acc + (v.quantity * v.packagePrice), 0) / 
-                             (stockVariations.reduce((acc, v) => acc + (v.quantity * v.unitSize), 0) || 1)).toFixed(2)
-                          }</strong></span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const totalStock = stockVariations.reduce((acc, v) => acc + (v.quantity * v.unitSize), 0);
-                            const totalCost = stockVariations.reduce((acc, v) => acc + (v.quantity * v.packagePrice), 0);
-                            const avgCost = totalStock > 0 ? (totalCost / totalStock) : 0;
-                            
-                            const stockInput = document.querySelector('input[name="stock"]') as HTMLInputElement;
-                            const costInput = document.querySelector('input[name="cost_price"]') as HTMLInputElement;
-                            
-                            if (stockInput) {
-                               stockInput.value = totalStock.toString();
-                               // Trigger onChange for React if needed (but since we set it directly in DOM and then handleSave reads FormData, it works)
-                            }
-                            if (costInput) {
-                               costInput.value = avgCost.toFixed(2);
-                            }
-                            
-                            alert('Valores calculados aplicados ao formulário!');
-                          }}
-                          className="w-full bg-blue-600/40 hover:bg-blue-600 border border-blue-500/50 text-white text-xs py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20"
-                        >
-                          Aplicar Cálculos ao Produto
-                        </button>
-                      </div>
-                    )}
-
-                    {stockVariations.length === 0 && (
-                      <p className="text-[10px] text-slate-500 italic text-center">Use o botão "Adicionar Pacote" para calcular estoque a partir de embalagens (ex: 3 pacotes de 2kg).</p>
-                    )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead>
+                        <tr className="bg-slate-800/30 text-slate-500 border-b border-slate-800">
+                          <th className="px-3 py-2 font-medium">Qtd (Pcts/Garrafas)</th>
+                          <th className="px-3 py-2 font-medium">Unidade (kg, Litro, etc)</th>
+                          <th className="px-3 py-2 font-medium">Preço Pago (Total)</th>
+                          <th className="px-3 py-2 font-medium">Custo p/ Unidade</th>
+                          <th className="px-1 py-2 w-8"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {stockVariations.map((v, idx) => {
+                          const unitCost = (v.qty * v.size) > 0 ? (v.totalPrice / (v.qty * v.size)) : 0;
+                          return (
+                            <tr key={v.id} className="hover:bg-white/5 transition-colors">
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  value={v.qty}
+                                  onChange={(e) => {
+                                    const newVars = [...stockVariations];
+                                    newVars[idx].qty = parseFloat(e.target.value) || 0;
+                                    setStockVariations(newVars);
+                                  }}
+                                  className="w-full bg-slate-800/50 border border-slate-700/50 rounded-md px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500 text-white font-mono"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  step="0.001"
+                                  value={v.size}
+                                  onChange={(e) => {
+                                    const newVars = [...stockVariations];
+                                    newVars[idx].size = parseFloat(e.target.value) || 0;
+                                    setStockVariations(newVars);
+                                  }}
+                                  className="w-full bg-slate-800/50 border border-slate-700/50 rounded-md px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500 text-white font-mono"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="relative">
+                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">R$</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={v.totalPrice}
+                                    onChange={(e) => {
+                                      const newVars = [...stockVariations];
+                                      newVars[idx].totalPrice = parseFloat(e.target.value) || 0;
+                                      setStockVariations(newVars);
+                                    }}
+                                    className="w-full bg-slate-800/50 border border-slate-700/50 rounded-md pl-7 pr-2 py-1 outline-none focus:ring-1 focus:ring-blue-500 text-white font-mono"
+                                  />
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-slate-400 font-mono">
+                                R$ {unitCost.toFixed(2)}
+                              </td>
+                              <td className="px-1 py-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => setStockVariations(stockVariations.filter((_, i) => i !== idx))}
+                                  className="text-red-500/50 hover:text-red-400 transition-colors"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      {stockVariations.length > 0 && (
+                        <tfoot className="bg-slate-800/30 font-bold border-t border-slate-700">
+                          <tr>
+                            <td className="px-3 py-3 text-slate-300">
+                              <span className="text-[10px] text-slate-500 block uppercase mb-1">Total Pcts</span>
+                              {stockVariations.reduce((acc, v) => acc + v.qty, 0)}
+                            </td>
+                            <td className="px-3 py-3 text-emerald-400">
+                              <span className="text-[10px] text-slate-500 block uppercase mb-1">Estoque Total</span>
+                              {stockVariations.reduce((acc, v) => acc + (v.qty * v.size), 0).toFixed(3)}
+                            </td>
+                            <td className="px-3 py-3" colSpan={2}>
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10px] text-slate-500 block uppercase">Custo Médio p/ Unidade</span>
+                                <span className="text-blue-400">R$ {
+                                  (stockVariations.reduce((acc, v) => acc + (v.totalPrice), 0) / 
+                                   (stockVariations.reduce((acc, v) => acc + (v.qty * v.size), 0) || 1)).toFixed(2)
+                                }</span>
+                              </div>
+                            </td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
                   </div>
+
+                  {stockVariations.length > 0 && (
+                    <div className="p-3 bg-slate-800/40 border-t border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const totalStock = stockVariations.reduce((acc, v) => acc + (v.qty * v.size), 0);
+                          const totalPrice = stockVariations.reduce((acc, v) => acc + v.totalPrice, 0);
+                          const avgCost = totalStock > 0 ? (totalPrice / totalStock) : 0;
+                          
+                          const stockInput = document.querySelector('input[name="stock"]') as HTMLInputElement;
+                          const costInput = document.querySelector('input[name="cost_price"]') as HTMLInputElement;
+                          
+                          if (stockInput) stockInput.value = totalStock.toString();
+                          if (costInput) costInput.value = avgCost.toFixed(2);
+                          
+                          alert('Valores calculados de estoque e custo aplicados!');
+                        }}
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-900/20 uppercase tracking-wider"
+                      >
+                        Aplicar Cálculos ao Produto
+                      </button>
+                    </div>
+                  )}
+
+                  {stockVariations.length === 0 && (
+                    <div className="p-8 text-center bg-slate-900/20">
+                      <p className="text-xs text-slate-500 italic">Adicione compras ou lotes diferentes para calcular o custo médio e o estoque final.</p>
+                    </div>
+                  )}
                 </div>
               )}
 
