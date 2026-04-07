@@ -2367,18 +2367,14 @@ function Products() {
                       <div className="grid grid-cols-2 gap-4 p-4 bg-blue-900/10 border border-blue-900/20 rounded-2xl">
                         <div>
                           <label className="block text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Unidade de Compra</label>
-                          <select 
+                          <input 
                             name="purchase_unit" 
+                            type="text" 
                             value={purchaseUnit} 
+                            placeholder="Ex: Pacote, Garrafa"
                             onChange={(e) => setPurchaseUnit(e.target.value)}
-                            className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
-                          >
-                            <option value="">Selecione...</option>
-                            <option value="Unidade">Unidade</option>
-                            <option value="Garrafa">Garrafa</option>
-                            <option value="Pacote">Pacote</option>
-                            <option value="Lata">Lata</option>
-                          </select>
+                            className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none" 
+                          />
                         </div>
                         <div>
                           <label className="block text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Unidade de Venda</label>
@@ -2390,6 +2386,21 @@ function Products() {
                             onChange={(e) => setSaleUnit(e.target.value)}
                             className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none" 
                           />
+                        </div>
+                        <div className="mt-2">
+                          <label className="block text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Unidade de Estoque (Selecione)</label>
+                          <select 
+                            name="purchase_unit_selection" 
+                            value={purchaseUnit} 
+                            onChange={(e) => setPurchaseUnit(e.target.value)}
+                            className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
+                          >
+                            <option value="">Selecione...</option>
+                            <option value="Unidade">Unidade</option>
+                            <option value="Garrafa">Garrafa</option>
+                            <option value="Pacote">Pacote</option>
+                            <option value="Lata">Lata</option>
+                          </select>
                         </div>
                         <div className="mt-2">
                           <label className="block text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Estoque Total</label>
