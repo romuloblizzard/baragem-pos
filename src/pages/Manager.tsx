@@ -1713,6 +1713,8 @@ function Products() {
   const [unselectedCategories, setUnselectedCategories] = useState<number[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [stockVariations, setStockVariations] = useState<{ id: string, qty: number, size: number, totalPrice: number }[]>([]);
+  const [purchaseUnit, setPurchaseUnit] = useState('');
+  const [saleUnit, setSaleUnit] = useState('un');
 
   const exportProductsToExcel = () => {
     // Collect all products including variations if possible
@@ -2326,7 +2328,12 @@ function Products() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-400 mb-1">Unidade</label>
-                        <select name="unit" defaultValue={editingProduct?.unit || 'un'} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <select 
+                          name="unit" 
+                          value={saleUnit} 
+                          onChange={(e) => setSaleUnit(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
                           <option value="un">Unidade (un)</option>
                           <option value="Garrafa">Garrafa</option>
                           <option value="Pacote">Pacote</option>
