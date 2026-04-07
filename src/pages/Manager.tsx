@@ -1713,6 +1713,9 @@ function Products() {
   const [unselectedCategories, setUnselectedCategories] = useState<number[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [stockVariations, setStockVariations] = useState<{ id: string, qty: number, size: number, totalPrice: number }[]>([]);
+  const [dbBatches, setDbBatches] = useState<{ id: number, quantity: number, unit_size: number, total_price: number, remaining_stock: number, created_at: string }[]>([]);
+  const [purchaseUnit, setPurchaseUnit] = useState('');
+  const [saleUnit, setSaleUnit] = useState('un');
 
   const exportProductsToExcel = () => {
     // Collect all products including variations if possible
@@ -1830,27 +1833,39 @@ function Products() {
     }
   };
 
+  const loadProducts = () => api.getProducts().then(setProducts);
+  const loadCategories = () => api.getCategories().then(setCategories);
+
+  const handleEditProduct = (product: any) => {
+    setEditingProduct(product);
+    setProductType(product.type || 'simple');
+    setIngredients(product.ingredients || []);
+    setChildProducts(product.child_product_ids || []);
+    setPurchaseUnit(product.purchase_unit || '');
+    setSaleUnit(product.unit || 'un');
+    
+    // Fetch persistent batches
+    api.getProductBatches(product.id).then(setDbBatches);
+    
+    setIsModalOpen(true);
+  };
+
+  const handleNewProduct = () => {
+    setEditingProduct(null);
+    setProductType('simple');
+    setIngredients([]);
+    setChildProducts([]);
+    setPurchaseUnit('');
+    setSaleUnit('un');
+    setStockVariations([]);
+    setDbBatches([]);
+    setIsModalOpen(true);
+  };
+
   useEffect(() => {
     loadProducts();
     loadCategories();
   }, []);
-
-  useEffect(() => {
-    if (editingProduct) {
-      setProductType(editingProduct.type || 'simple');
-      setIngredients(editingProduct.ingredients || []);
-      setChildProducts(products.filter(p => p.parent_id === editingProduct.id).map(p => p.id));
-      setStockVariations([]);
-    } else {
-      setProductType('simple');
-      setIngredients([]);
-      setChildProducts([]);
-      setStockVariations([]);
-    }
-  }, [editingProduct, products]);
-
-  const loadProducts = () => api.getProducts().then(setProducts);
-  const loadCategories = () => api.getCategories().then(setCategories);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1906,7 +1921,31 @@ function Products() {
 
     try {
       console.log('Saving product data:', JSON.stringify(data, null, 2));
-      await api.saveProduct(data);
+      const saved = await api.saveProduct(data);
+      const productId = saved.id;
+
+      if (stockVariations.length > 0) {
+        console.log('Iniciando persistência de lotes para o produto:', productId);
+        // Use sequential await to ensure all batches are processed
+        for (const v of stockVariations) {
+          if (v.qty > 0) {
+            console.log('Adicionando lote:', v);
+            await api.addBatch({
+              product_id: productId,
+              quantity: v.qty,
+              unit_size: v.size,
+              total_price: v.totalPrice,
+              remaining_stock: v.qty * v.size
+            });
+          }
+        }
+        // Clear new entries after success and reload history
+        setStockVariations([]);
+        const updatedBatches = await api.getProductBatches(productId);
+        setDbBatches(updatedBatches);
+        console.log('Lotes persistidos com sucesso.');
+      }
+
       setIsModalOpen(false);
       setEditingProduct(null);
       loadProducts();
@@ -1995,7 +2034,7 @@ function Products() {
           </label>
 
           <button
-            onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
+            onClick={handleNewProduct}
             className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
           >
             <Plus size={18} /> Novo Produto
@@ -2171,7 +2210,7 @@ function Products() {
                       <ClipboardList size={16} />
                     </button>
                     <button
-                      onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
+                      onClick={() => handleEditProduct(product)}
                       className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
                     >
                       <Edit size={16} />
@@ -2220,7 +2259,7 @@ function Products() {
                         <ClipboardList size={16} />
                       </button>
                       <button
-                        onClick={() => { setEditingProduct(variation); setIsModalOpen(true); }}
+                        onClick={() => handleEditProduct(variation)}
                         className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
                       >
                         <Edit size={16} />
@@ -2309,191 +2348,229 @@ function Products() {
               </div>
 
               {productType !== 'variable' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-1">Preço Venda (R$)</label>
-                    <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                <div className="space-y-6">
+                  {/* Preços */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-1">Preço Venda (R$)</label>
+                      <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-inner" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-1">Preço Custo (R$) <span className="text-[10px] text-slate-500">(Médio)</span></label>
+                      <input name="cost_price" type="number" step="0.01" value={editingProduct?.cost_price || 0} readOnly className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3 text-slate-400 outline-none cursor-not-allowed font-mono" />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-1">Preço Custo (R$)</label>
-                    <input name="cost_price" type="number" step="0.01" defaultValue={editingProduct?.cost_price} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
-                  </div>
+
                   {productType === 'simple' && (
                     <>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-1">Estoque</label>
-                        <input name="stock" type="number" step="0.001" defaultValue={editingProduct?.stock} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-1">Unidade</label>
-                        <select name="unit" defaultValue={editingProduct?.unit || 'un'} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
-                          <option value="un">Unidade (un)</option>
-                          <option value="ml">Mililitro (ml)</option>
-                          <option value="l">Litro (l)</option>
-                          <option value="kg">Quilograma (kg)</option>
-                          <option value="g">Grama (g)</option>
-                          <option value="dose">Dose</option>
-                        </select>
-                      </div>
-                      <div className="col-span-2 grid grid-cols-2 gap-4 mt-2 p-3 bg-blue-900/10 border border-blue-900/30 rounded-xl">
+                      {/* Configurações de Unidade */}
+                      <div className="grid grid-cols-2 gap-4 p-4 bg-blue-900/10 border border-blue-900/20 rounded-2xl">
                         <div>
-                          <label className="block text-xs font-medium text-blue-400 mb-1">Unidade na Compra (Opcional Geralmente)</label>
-                          <input name="purchase_unit" defaultValue={editingProduct?.purchase_unit} placeholder="Ex: Garrafa, Caixa" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                          <label className="block text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Unidade de Compra</label>
+                          <select 
+                            name="purchase_unit" 
+                            value={purchaseUnit} 
+                            onChange={(e) => setPurchaseUnit(e.target.value)}
+                            className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
+                          >
+                            <option value="">Selecione...</option>
+                            <option value="Unidade">Unidade</option>
+                            <option value="Garrafa">Garrafa</option>
+                            <option value="Pacote">Pacote</option>
+                            <option value="Lata">Lata</option>
+                          </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-blue-400 mb-1">Equivale a (Fator de Conversão)</label>
-                          <input name="unit_conversion_factor" type="number" step="0.001" defaultValue={editingProduct?.unit_conversion_factor || 1} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" title="Quantas unidades de venda vem em 1 unidade de compra? Ex: 1 Garrafa = 1000 ml" />
+                          <label className="block text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Unidade de Venda</label>
+                          <input 
+                            name="unit" 
+                            type="text" 
+                            value={saleUnit} 
+                            placeholder="Ex: kg, Litro, un"
+                            onChange={(e) => setSaleUnit(e.target.value)}
+                            className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none" 
+                          />
+                        </div>
+                        <div className="mt-2">
+                          <label className="block text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Estoque Total</label>
+                          <input name="stock" type="number" step="0.001" value={editingProduct?.stock || 0} readOnly className="w-full bg-slate-900/80 border border-blue-900/30 rounded-lg px-3 py-2 text-sm text-emerald-400 font-mono outline-none" />
+                        </div>
+                        <div className="mt-2">
+                          <input 
+                            name="unit_conversion_factor" 
+                            type="number" 
+                            step="0.001" 
+                            defaultValue={editingProduct?.unit_conversion_factor || 1} 
+                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none" 
+                          />
+                        </div>
+                      </div>
+
+                      {/* Calculadora Persistente de Lotes */}
+                      <div className="border border-slate-700 rounded-2xl overflow-hidden bg-slate-900/40 shadow-2xl mt-4">
+                        <div className="p-4 bg-slate-800/60 border-b border-slate-700 flex justify-between items-center">
+                          <h4 className="text-sm font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                            <Calculator size={18} className="text-blue-400" /> CALCULADORA DE ENTRADAS / COMPRAS
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => setStockVariations([...stockVariations, { id: Math.random().toString(), qty: 0, size: 1, totalPrice: 0 }])}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 shadow-lg shadow-blue-900/30 text-xs"
+                          >
+                            <Plus size={14} /> + Adicionar Lote
+                          </button>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-800/30 text-slate-500 border-b border-slate-800">
+                              <tr>
+                                <th className="px-4 py-3 font-bold uppercase tracking-tight text-[11px] text-slate-400 w-24 whitespace-nowrap">Entrada</th>
+                                <th key={`head-qty-${purchaseUnit}`} className="px-4 py-3 font-bold uppercase tracking-tight text-[11px] text-blue-400 whitespace-nowrap">Qtd ({purchaseUnit || 'Pcts/Garrafas'})</th>
+                                <th key={`head-size-${saleUnit}`} className="px-4 py-3 font-bold uppercase tracking-tight text-[11px] text-emerald-400 whitespace-nowrap">Conteúdo ({saleUnit || 'un'})</th>
+                                <th className="px-4 py-3 font-bold uppercase tracking-tight text-[11px] text-amber-400 whitespace-nowrap">Total Pago (R$)</th>
+                                <th className="px-4 py-3 font-bold uppercase tracking-tight text-[11px] text-purple-400 whitespace-nowrap">Saldo Atual ({saleUnit || 'un'})</th>
+                                <th className="px-1 py-3 w-10 text-center"><Trash2 size={14} /></th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/50">
+                              {/* Histórico do Banco de Dados */}
+                              {dbBatches.map((batch) => (
+                                <tr key={batch.id} className="bg-emerald-500/5 group hover:bg-emerald-500/10 transition-colors">
+                                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
+                                    {new Date(batch.created_at).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-4 py-3 font-mono text-slate-300 font-bold">{batch.quantity}</td>
+                                  <td className="px-4 py-3 font-mono text-slate-300">{batch.unit_size}</td>
+                                  <td className="px-4 py-3 font-mono text-slate-300">R$ {batch.total_price.toFixed(2)}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`px-2 py-1 rounded-lg font-bold text-[10px] ${batch.remaining_stock <= 0 ? 'bg-red-500/20 text-red-500' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                                      {batch.remaining_stock.toFixed(3)}
+                                    </span>
+                                  </td>
+                                  <td className="px-1 py-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (confirm('Deseja excluir este lote permanentemente? Isso alterará o estoque total do produto.')) {
+                                          try {
+                                            await api.deleteBatch(batch.id);
+                                            setDbBatches(dbBatches.filter(b => b.id !== batch.id));
+                                            loadProducts();
+                                          } catch (err) {
+                                            alert('Erro ao excluir lote do histórico.');
+                                          }
+                                        }
+                                      }}
+                                      className="text-red-500/30 hover:text-red-500 transition-colors p-2"
+                                      title="Excluir Lote do Histórico"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+
+                              {/* Novas Entradas Temporárias */}
+                              {stockVariations.map((v, idx) => (
+                                <tr key={v.id} className="bg-blue-500/5">
+                                  <td className="px-4 py-3 text-blue-400 font-bold uppercase italic text-[10px]">Novo Lote</td>
+                                  <td className="px-4 py-3">
+                                    <input
+                                      type="number"
+                                      value={v.qty || ''}
+                                      placeholder="0"
+                                      onFocus={(e) => {
+                                        if (e.target.value === '0' || e.target.value === '1') {
+                                          e.target.value = '';
+                                        }
+                                        e.currentTarget.select();
+                                      }}
+                                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                                      onChange={(e) => {
+                                        const val = Number(e.target.value);
+                                        const newVars = [...stockVariations];
+                                        newVars[idx].qty = isNaN(val) ? 0 : val;
+                                        setStockVariations(newVars);
+                                      }}
+                                      className="w-full bg-slate-800 border border-slate-700/50 rounded-lg px-3 py-2 outline-none text-white font-bold font-mono focus:border-blue-500 text-sm"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <input
+                                      type="number"
+                                      step="0.001"
+                                      value={v.size || ''}
+                                      placeholder="1"
+                                      onFocus={(e) => {
+                                        if (e.target.value === '0' || e.target.value === '1') {
+                                          e.target.value = '';
+                                        }
+                                        e.currentTarget.select();
+                                      }}
+                                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                                      onChange={(e) => {
+                                        const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                                        const newVars = [...stockVariations];
+                                        newVars[idx].size = val;
+                                        setStockVariations(newVars);
+                                      }}
+                                      className="w-full bg-slate-800 border border-slate-700/50 rounded-lg px-3 py-2 outline-none text-white font-mono focus:border-blue-500 text-sm"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="relative">
+                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">R$</span>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={v.totalPrice || ''}
+                                        placeholder="0.00"
+                                        onFocus={(e) => e.target.select()}
+                                        onChange={(e) => {
+                                          const val = Number(e.target.value);
+                                          const newVars = [...stockVariations];
+                                          newVars[idx].totalPrice = isNaN(val) ? 0 : val;
+                                          setStockVariations(newVars);
+                                        }}
+                                        className="w-full bg-slate-800 border border-slate-700/50 rounded-lg pl-8 pr-3 py-2 outline-none text-white font-mono focus:border-blue-500 text-sm"
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 italic text-slate-500 text-xs text-center">—</td>
+                                  <td className="px-1 py-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => setStockVariations(stockVariations.filter((_, i) => i !== idx))}
+                                      className="text-red-500/50 hover:text-red-400 transition-colors p-2"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-slate-800 border-t border-slate-700 font-bold">
+                              <tr>
+                                <td className="px-4 py-4 text-slate-500 uppercase text-[10px]">RESUMO GERAL</td>
+                                <td className="px-4 py-4 text-slate-300">
+                                  {dbBatches.reduce((acc, b) => acc + b.quantity, 0) + stockVariations.reduce((acc, v) => acc + v.qty, 0)} Vol.
+                                </td>
+                                <td className="px-4 py-4 text-emerald-400" colSpan={2}>
+                                  ESTOQUE: {(dbBatches.reduce((acc, b) => acc + b.remaining_stock, 0) + stockVariations.reduce((acc, v) => acc + (v.qty * v.size), 0)).toFixed(3)}
+                                </td>
+                                <td className="px-4 py-4 text-blue-400" colSpan={2}>
+                                  CUSTO MÉDIO: R$ {
+                                    (((dbBatches.reduce((acc, b) => acc + b.total_price, 0) + stockVariations.reduce((acc, v) => acc + v.totalPrice, 0))) /
+                                     (dbBatches.reduce((acc, b) => acc + (b.quantity * b.unit_size), 0) + stockVariations.reduce((acc, v) => acc + (v.qty * v.size), 0) || 1)).toFixed(2)
+                                  }
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
                         </div>
                       </div>
                     </>
-                  )}
-                </div>
-              )}
-
-              {/* Stock Calculator for Simple Products (Spreadsheet style) */}
-              {productType === 'simple' && (
-                <div className="mt-6 border border-slate-700 rounded-2xl overflow-hidden bg-slate-900/40">
-                  <div className="p-3 bg-slate-800/60 border-b border-slate-700 flex justify-between items-center">
-                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
-                       <Calculator size={14} className="text-blue-400" /> Calculadora de Entradas / Compras
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={() => setStockVariations([...stockVariations, { id: Math.random().toString(), qty: 1, size: 1, totalPrice: 0 }])}
-                      className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg font-bold transition-all shadow-lg shadow-blue-900/30 flex items-center gap-1"
-                    >
-                      <Plus size={12} /> Adicionar Lote
-                    </button>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-left">
-                      <thead>
-                        <tr className="bg-slate-800/30 text-slate-500 border-b border-slate-800">
-                          <th className="px-3 py-2 font-medium">Qtd (Pcts/Garrafas)</th>
-                          <th className="px-3 py-2 font-medium">Unidade (kg, Litro, etc)</th>
-                          <th className="px-3 py-2 font-medium">Preço Pago (Total)</th>
-                          <th className="px-3 py-2 font-medium">Custo p/ Unidade</th>
-                          <th className="px-1 py-2 w-8"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/50">
-                        {stockVariations.map((v, idx) => {
-                          const unitCost = (v.qty * v.size) > 0 ? (v.totalPrice / (v.qty * v.size)) : 0;
-                          return (
-                            <tr key={v.id} className="hover:bg-white/5 transition-colors">
-                              <td className="px-3 py-2">
-                                <input
-                                  type="number"
-                                  value={v.qty}
-                                  onChange={(e) => {
-                                    const newVars = [...stockVariations];
-                                    newVars[idx].qty = parseFloat(e.target.value) || 0;
-                                    setStockVariations(newVars);
-                                  }}
-                                  className="w-full bg-slate-800/50 border border-slate-700/50 rounded-md px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500 text-white font-mono"
-                                />
-                              </td>
-                              <td className="px-3 py-2">
-                                <input
-                                  type="number"
-                                  step="0.001"
-                                  value={v.size}
-                                  onChange={(e) => {
-                                    const newVars = [...stockVariations];
-                                    newVars[idx].size = parseFloat(e.target.value) || 0;
-                                    setStockVariations(newVars);
-                                  }}
-                                  className="w-full bg-slate-800/50 border border-slate-700/50 rounded-md px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500 text-white font-mono"
-                                />
-                              </td>
-                              <td className="px-3 py-2">
-                                <div className="relative">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">R$</span>
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    value={v.totalPrice}
-                                    onChange={(e) => {
-                                      const newVars = [...stockVariations];
-                                      newVars[idx].totalPrice = parseFloat(e.target.value) || 0;
-                                      setStockVariations(newVars);
-                                    }}
-                                    className="w-full bg-slate-800/50 border border-slate-700/50 rounded-md pl-7 pr-2 py-1 outline-none focus:ring-1 focus:ring-blue-500 text-white font-mono"
-                                  />
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-slate-400 font-mono">
-                                R$ {unitCost.toFixed(2)}
-                              </td>
-                              <td className="px-1 py-2 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => setStockVariations(stockVariations.filter((_, i) => i !== idx))}
-                                  className="text-red-500/50 hover:text-red-400 transition-colors"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      {stockVariations.length > 0 && (
-                        <tfoot className="bg-slate-800/30 font-bold border-t border-slate-700">
-                          <tr>
-                            <td className="px-3 py-3 text-slate-300">
-                              <span className="text-[10px] text-slate-500 block uppercase mb-1">Total Pcts</span>
-                              {stockVariations.reduce((acc, v) => acc + v.qty, 0)}
-                            </td>
-                            <td className="px-3 py-3 text-emerald-400">
-                              <span className="text-[10px] text-slate-500 block uppercase mb-1">Estoque Total</span>
-                              {stockVariations.reduce((acc, v) => acc + (v.qty * v.size), 0).toFixed(3)}
-                            </td>
-                            <td className="px-3 py-3" colSpan={2}>
-                              <div className="flex flex-col gap-1">
-                                <span className="text-[10px] text-slate-500 block uppercase">Custo Médio p/ Unidade</span>
-                                <span className="text-blue-400">R$ {
-                                  (stockVariations.reduce((acc, v) => acc + (v.totalPrice), 0) / 
-                                   (stockVariations.reduce((acc, v) => acc + (v.qty * v.size), 0) || 1)).toFixed(2)
-                                }</span>
-                              </div>
-                            </td>
-                            <td></td>
-                          </tr>
-                        </tfoot>
-                      )}
-                    </table>
-                  </div>
-
-                  {stockVariations.length > 0 && (
-                    <div className="p-3 bg-slate-800/40 border-t border-slate-700">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const totalStock = stockVariations.reduce((acc, v) => acc + (v.qty * v.size), 0);
-                          const totalPrice = stockVariations.reduce((acc, v) => acc + v.totalPrice, 0);
-                          const avgCost = totalStock > 0 ? (totalPrice / totalStock) : 0;
-                          
-                          const stockInput = document.querySelector('input[name="stock"]') as HTMLInputElement;
-                          const costInput = document.querySelector('input[name="cost_price"]') as HTMLInputElement;
-                          
-                          if (stockInput) stockInput.value = totalStock.toString();
-                          if (costInput) costInput.value = avgCost.toFixed(2);
-                          
-                          alert('Valores calculados de estoque e custo aplicados!');
-                        }}
-                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-900/20 uppercase tracking-wider"
-                      >
-                        Aplicar Cálculos ao Produto
-                      </button>
-                    </div>
-                  )}
-
-                  {stockVariations.length === 0 && (
-                    <div className="p-8 text-center bg-slate-900/20">
-                      <p className="text-xs text-slate-500 italic">Adicione compras ou lotes diferentes para calcular o custo médio e o estoque final.</p>
-                    </div>
                   )}
                 </div>
               )}

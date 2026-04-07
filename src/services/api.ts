@@ -879,5 +879,26 @@ export const api = {
       unit_cost: item.reconciled_unit_cost,
       raw_name: item.raw_name
     }));
+  },
+
+  // Product Batches (FIFO Management)
+  getProductBatches: async (productId: number) => {
+    const { data, error } = await supabase
+      .from('product_batches')
+      .select('*')
+      .eq('product_id', productId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+  addBatch: async (batch: { product_id: number, quantity: number, unit_size: number, total_price: number, remaining_stock: number }) => {
+    const { data, error } = await supabase.from('product_batches').insert(batch).select().single();
+    if (error) throw error;
+    return data;
+  },
+  deleteBatch: async (id: number) => {
+    const { error } = await supabase.from('product_batches').delete().eq('id', id);
+    if (error) throw error;
+    return { success: true };
   }
 };
