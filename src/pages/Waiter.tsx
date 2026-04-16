@@ -80,7 +80,6 @@ export default function Waiter() {
   const [settings, setSettings] = useState<any>({});
   const [splitEntries, setSplitEntries] = useState<Array<{ id: string; method: string; amount: number }>>([]);
   const [splitInputAmount, setSplitInputAmount] = useState('');
-  const [splitInputMethod, setSplitInputMethod] = useState<'cash' | 'debit' | 'credit' | 'pix'>('cash');
 
   // Open Orders Panel State
   const [openOrders, setOpenOrders] = useState<any[]>([]);
@@ -491,14 +490,21 @@ export default function Waiter() {
           <head>
             <title>Comanda</title>
             <style>
-              body { font-family: 'Courier New', Courier, monospace; width: 300px; margin: 0; padding: 10px; font-size: 12px; }
-              .header { text-align: center; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 5px; }
-              .order-header { font-weight: bold; margin-top: 10px; border-bottom: 1px solid #ddd; }
-              .item { display: flex; justify-content: space-between; margin-bottom: 2px; }
-              .totals { border-top: 1px dashed #000; margin-top: 10px; padding-top: 5px; }
-              .row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-              .grand-total { font-size: 16px; font-weight: bold; margin-top: 5px; }
-              .footer { text-align: center; margin-top: 20px; font-size: 10px; }
+              @page { margin: 0; size: 80mm auto; }
+              html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              body { font-family: 'Courier New', Courier, monospace; width: 72mm; margin: 0 auto; padding: 4mm; font-size: 9pt; line-height: 1.3; }
+              .header { text-align: center; margin-bottom: 3mm; border-bottom: 0.3mm dashed #000; padding-bottom: 3mm; }
+              .header h2 { font-size: 12pt; margin: 0 0 1mm; }
+              .header p { margin: 0.5mm 0; font-size: 8pt; }
+              .order-header { font-weight: bold; margin-top: 3mm; border-bottom: 0.3mm solid #000; padding-bottom: 1mm; font-size: 9pt; }
+              .item { display: flex; justify-content: space-between; margin-bottom: 1mm; font-size: 9pt; }
+              .totals { border-top: 0.3mm dashed #000; margin-top: 3mm; padding-top: 3mm; }
+              .row { display: flex; justify-content: space-between; margin-bottom: 1mm; font-size: 9pt; }
+              .grand-total { font-size: 13pt; font-weight: bold; margin-top: 2mm; }
+              .footer { text-align: center; margin-top: 5mm; font-size: 8pt; }
+              @media print {
+                body { width: 72mm; }
+              }
             </style>
           </head>
           <body>
@@ -1662,15 +1668,15 @@ export default function Waiter() {
                 }, 0);
                 const service = includeServiceFee ? (consumption - totalDiscount) * 0.1 : 0;
                 const finalTotal = consumption - totalDiscount + service + coverFee;
-                const totalPaid = splitEntries.reduce((s: number, e) => s + e.amount, 0);
+                const totalPaid = splitEntries.reduce((s: number, e: any) => s + e.amount, 0);
                 const remaining = finalTotal - totalPaid;
 
                 const methodLabels: Record<string, string> = { cash: '💵 Dinheiro', debit: '💳 Débito', credit: '💳 Crédito', pix: '💠 PIX' };
-                const methodActive: Record<string, string> = {
-                  cash: 'bg-emerald-600 text-white border-emerald-500',
-                  debit: 'bg-blue-600 text-white border-blue-500',
-                  credit: 'bg-purple-600 text-white border-purple-500',
-                  pix: 'bg-cyan-600 text-white border-cyan-500',
+                const methodColors: Record<string, string> = {
+                  cash: 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500 text-white',
+                  debit: 'bg-blue-600 hover:bg-blue-500 border-blue-500 text-white',
+                  credit: 'bg-purple-600 hover:bg-purple-500 border-purple-500 text-white',
+                  pix: 'bg-cyan-600 hover:bg-cyan-500 border-cyan-500 text-white',
                 };
                 const methodBadge: Record<string, string> = {
                   cash: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
@@ -1679,11 +1685,11 @@ export default function Waiter() {
                   pix: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
                 };
 
-                const addEntry = () => {
+                const addEntry = (method: string) => {
+                  if (remaining <= 0.01) return;
                   const amt = parseFloat(splitInputAmount);
-                  const value = (!splitInputAmount || isNaN(amt)) ? remaining : amt;
-                  if (value <= 0) return;
-                  setSplitEntries(prev => [...prev, { id: Date.now().toString(), method: splitInputMethod, amount: parseFloat(value.toFixed(2)) }]);
+                  const value = (!splitInputAmount || isNaN(amt) || amt <= 0) ? remaining : Math.min(amt, remaining);
+                  setSplitEntries((prev: any[]) => [...prev, { id: Date.now().toString(), method, amount: parseFloat(value.toFixed(2)) }]);
                   setSplitInputAmount('');
                 };
 
@@ -1693,47 +1699,45 @@ export default function Waiter() {
                       🖨️ Imprimir Comanda
                     </button>
 
-                    {/* Method selector */}
+                    {/* Amount input */}
+                    <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3">
+                      <span className="text-slate-400 font-medium text-sm shrink-0">R$</span>
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={splitInputAmount}
+                        onChange={e => setSplitInputAmount(e.target.value)}
+                        placeholder={remaining > 0.01 ? remaining.toFixed(2) : '0.00'}
+                        className="flex-1 bg-transparent text-white text-lg font-bold outline-none min-w-0"
+                      />
+                      {splitInputAmount && (
+                        <button onClick={() => setSplitInputAmount('')} className="text-slate-500 hover:text-slate-300">
+                          <X size={16} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Method buttons — clicking adds the entry */}
                     <div className="grid grid-cols-2 gap-2">
                       {(['cash', 'debit', 'credit', 'pix'] as const).map(m => (
                         <button
                           key={m}
-                          onClick={() => setSplitInputMethod(m)}
-                          className={`py-2.5 rounded-xl text-sm font-medium transition-all border ${splitInputMethod === m ? methodActive[m] : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
+                          onClick={() => addEntry(m)}
+                          disabled={remaining <= 0.01}
+                          className={`py-3 rounded-xl text-sm font-bold transition-all border disabled:opacity-30 disabled:cursor-not-allowed ${methodColors[m]}`}
                         >
                           {methodLabels[m]}
                         </button>
                       ))}
                     </div>
 
-                    {/* Amount input + add button */}
-                    <div className="flex gap-2 items-center bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
-                      <span className="text-slate-500 text-sm font-medium shrink-0">R$</span>
-                      <input
-                        type="number" min="0" step="0.01"
-                        value={splitInputAmount}
-                        onChange={e => setSplitInputAmount(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && addEntry()}
-                        placeholder={remaining > 0 ? remaining.toFixed(2) : '0.00'}
-                        className="flex-1 bg-transparent text-white text-sm outline-none min-w-0"
-                      />
-                      <button
-                        onClick={addEntry}
-                        disabled={remaining <= 0}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap"
-                      >
-                        + Adicionar
-                      </button>
-                    </div>
-
                     {/* Entries list */}
                     {splitEntries.length > 0 && (
                       <div className="space-y-1.5">
-                        {splitEntries.map(e => (
+                        {splitEntries.map((e: any) => (
                           <div key={e.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${methodBadge[e.method]}`}>
                             <span className="flex-1 text-sm font-medium">{methodLabels[e.method]}</span>
                             <span className="font-bold text-sm">R$ {e.amount.toFixed(2)}</span>
-                            <button onClick={() => setSplitEntries(prev => prev.filter(x => x.id !== e.id))} className="opacity-60 hover:opacity-100 transition-opacity ml-1">
+                            <button onClick={() => setSplitEntries((prev: any[]) => prev.filter((x: any) => x.id !== e.id))} className="opacity-60 hover:opacity-100 transition-opacity ml-1">
                               <X size={14} />
                             </button>
                           </div>
@@ -1742,7 +1746,7 @@ export default function Waiter() {
                     )}
 
                     {/* Residual indicator */}
-                    <div className={`flex justify-between items-center px-4 py-3 rounded-xl border font-bold transition-colors ${remaining <= 0.01 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : splitEntries.length > 0 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                    <div className={`flex justify-between items-center px-4 py-3 rounded-xl border font-bold transition-colors ${remaining <= 0.01 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : splitEntries.length > 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-slate-800/50 border-slate-700 text-slate-400'}`}>
                       <span className="text-sm">{remaining <= 0.01 ? '✓ Valor coberto' : 'Falta pagar'}</span>
                       <span className="text-lg">{remaining <= 0.01 ? 'Pago' : `R$ ${remaining.toFixed(2)}`}</span>
                     </div>
