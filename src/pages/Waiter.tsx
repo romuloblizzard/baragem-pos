@@ -490,73 +490,81 @@ export default function Waiter() {
           <head>
             <title>Comanda</title>
             <style>
-              @page { margin: 0; size: 80mm auto; }
-              html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              body { font-family: 'Courier New', Courier, monospace; width: 72mm; margin: 0 auto; padding: 4mm; font-size: 9pt; line-height: 1.3; }
-              .header { text-align: center; margin-bottom: 3mm; border-bottom: 0.3mm dashed #000; padding-bottom: 3mm; }
-              .header h2 { font-size: 12pt; margin: 0 0 1mm; }
-              .header p { margin: 0.5mm 0; font-size: 8pt; }
-              .order-header { font-weight: bold; margin-top: 3mm; border-bottom: 0.3mm solid #000; padding-bottom: 1mm; font-size: 9pt; }
-              .item { display: flex; justify-content: space-between; margin-bottom: 1mm; font-size: 9pt; }
-              .totals { border-top: 0.3mm dashed #000; margin-top: 3mm; padding-top: 3mm; }
-              .row { display: flex; justify-content: space-between; margin-bottom: 1mm; font-size: 9pt; }
-              .grand-total { font-size: 13pt; font-weight: bold; margin-top: 2mm; }
-              .footer { text-align: center; margin-top: 5mm; font-size: 8pt; }
-              @media print {
-                body { width: 72mm; }
+              @page { margin: 2mm; size: 80mm auto; }
+              * { box-sizing: border-box; }
+              body {
+                font-family: Arial, Helvetica, sans-serif;
+                width: 76mm;
+                margin: 0;
+                padding: 2mm;
+                font-size: 12pt;
+                line-height: 1.5;
+                color: #000;
+                background: #fff;
               }
+              h2 { font-size: 16pt; font-weight: 900; text-align: center; margin: 0 0 2mm; }
+              p { margin: 1mm 0; text-align: center; font-size: 11pt; }
+              hr { border: none; border-top: 1.5px solid #000; margin: 3mm 0; }
+              .dashed { border-top: 1.5px dashed #000; }
+              table { width: 100%; border-collapse: collapse; }
+              td { font-size: 12pt; padding: 1mm 0; vertical-align: top; }
+              td.qty { width: 8mm; font-weight: 900; }
+              td.name { font-weight: 700; padding-right: 2mm; }
+              td.price { width: 20mm; text-align: right; font-weight: 900; white-space: nowrap; }
+              .section-title { font-size: 11pt; font-weight: 900; background: #000; color: #fff; padding: 1mm 2mm; margin: 3mm 0 1mm; }
+              .total-row td { font-size: 12pt; font-weight: 700; padding: 1mm 0; }
+              .grand td { font-size: 16pt; font-weight: 900; padding-top: 2mm; }
+              .footer { text-align: center; margin-top: 4mm; font-size: 11pt; font-weight: 700; }
             </style>
           </head>
           <body>
-            <div class="header">
-              <h2>${settings.establishment_name || 'BAR DO ZÉ'}</h2>
-              ${settings.establishment_address ? `<p>${settings.establishment_address}</p>` : ''}
-              ${settings.establishment_phone ? `<p>Tel: ${settings.establishment_phone}</p>` : ''}
-              ${settings.establishment_cnpj ? `<p>CNPJ: ${settings.establishment_cnpj}</p>` : ''}
-              <p>${new Date().toLocaleString()}</p>
-            </div>
-            
-            ${ordersToPay.map(order => `
-              <div class="order-header">
-                Pulseira: ${order.pulseira}<br/>
-                Cliente: ${order.customer_name || 'N/A'}
-              </div>
-              <div class="items">
+            <h2>${settings.establishment_name || 'BAR DO ZE'}</h2>
+            ${settings.establishment_address ? `<p>${settings.establishment_address}</p>` : ''}
+            ${settings.establishment_phone ? `<p>Tel: ${settings.establishment_phone}</p>` : ''}
+            ${settings.establishment_cnpj ? `<p>CNPJ: ${settings.establishment_cnpj}</p>` : ''}
+            <p>${new Date().toLocaleString('pt-BR')}</p>
+            <hr class="dashed">
+
+            ${ordersToPay.map((order: any) => `
+              <div class="section-title">Pulseira ${order.pulseira} &mdash; ${order.customer_name || 'Cliente'}</div>
+              <table>
                 ${order.items.map((item: any) => `
-                  <div class="item">
-                    <span>${item.quantity}x ${item.product_name}</span>
-                    <span>R$ ${(item.quantity * item.price_at_time).toFixed(2)}</span>
-                  </div>
+                  <tr>
+                    <td class="qty">${item.quantity}x</td>
+                    <td class="name">${item.product_name}</td>
+                    <td class="price">R$&nbsp;${(item.quantity * item.price_at_time).toFixed(2)}</td>
+                  </tr>
                 `).join('')}
-              </div>
+              </table>
             `).join('')}
 
-            <div class="totals">
-              <div class="row">
-                <span>Subtotal:</span>
-                <span>R$ ${subtotal.toFixed(2)}</span>
-              </div>
+            <hr class="dashed">
+            <table class="total-row">
+              <tr>
+                <td>Subtotal</td>
+                <td class="price">R$&nbsp;${subtotal.toFixed(2)}</td>
+              </tr>
               ${includeServiceFee ? `
-              <div class="row">
-                <span>Taxa Serviço (10%):</span>
-                <span>R$ ${serviceValue.toFixed(2)}</span>
-              </div>
-              ` : ''}
+              <tr>
+                <td>Taxa Servico (10%)</td>
+                <td class="price">R$&nbsp;${serviceValue.toFixed(2)}</td>
+              </tr>` : ''}
               ${coverFee > 0 ? `
-              <div class="row">
-                <span>Couvert:</span>
-                <span>R$ ${coverFee.toFixed(2)}</span>
-              </div>
-              ` : ''}
-              <div class="row grand-total">
-                <span>TOTAL:</span>
-                <span>R$ ${total.toFixed(2)}</span>
-              </div>
-            </div>
+              <tr>
+                <td>Couvert</td>
+                <td class="price">R$&nbsp;${coverFee.toFixed(2)}</td>
+              </tr>` : ''}
+            </table>
+            <hr>
+            <table class="grand">
+              <tr>
+                <td><b>TOTAL</b></td>
+                <td class="price"><b>R$&nbsp;${total.toFixed(2)}</b></td>
+              </tr>
+            </table>
+            <hr class="dashed">
 
-            <div class="footer">
-              <p>${settings.receipt_footer || 'Obrigado pela preferência!'}</p>
-            </div>
+            <div class="footer">${settings.receipt_footer || 'Obrigado pela preferencia!'}</div>
             <script>
               window.onload = function() { window.print(); }
             </script>
