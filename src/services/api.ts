@@ -41,7 +41,8 @@ export const api = {
       .from('products')
       .select(`
         *,
-        categories (name)
+        categories (name),
+        product_batches (*)
       `)
       .eq('active', true)
       .order('name');
@@ -50,8 +51,28 @@ export const api = {
     const formattedProducts = products.map((p: any) => ({
       ...p,
       category_name: p.categories?.name || null,
-      ingredients: []
+      ingredients: [],
+      modifier_groups: [],
+      batches: p.product_batches || []
     }));
+
+    // Fetch Modifier Groups and Items
+    const { data: modifierData, error: modError } = await supabase
+      .from('product_modifier_groups')
+      .select(`
+        *,
+        product_modifier_items (
+          *,
+          linked_product:products (id, name, price, cost_price, stock, unit)
+        )
+      `)
+      .order('step_order', { ascending: true });
+
+    if (!modError && modifierData) {
+      for (const p of formattedProducts) {
+        p.modifier_groups = modifierData.filter((mg: any) => mg.product_id === p.id);
+      }
+    }
 
     const compositionIds = formattedProducts.filter((p: any) => p.type === 'composition').map((p: any) => p.id);
     if (compositionIds.length > 0) {
@@ -108,7 +129,7 @@ export const api = {
     return formattedProducts;
   },
   saveProduct: async (product: any) => {
-    const { ingredients, category_name, child_product_ids, observation, categories, ...productData } = product;
+    const { ingredients, modifier_groups, batches, category_name, child_product_ids, observation, categories, ...productData } = product;
 
     // In case we want to explicitly save observation into productData
     if (observation !== undefined) {
@@ -143,6 +164,58 @@ export const api = {
         }
       }
 
+      // Handle Modifiers
+      if (modifier_groups) {
+        // Simple strategy: delete all and re-insert
+        await supabase.from('product_modifier_groups').delete().eq('product_id', productId);
+        
+        for (const mg of modifier_groups) {
+          const { data: group, error: groupError } = await supabase
+            .from('product_modifier_groups')
+            .insert({
+              product_id: productId,
+              name: mg.name,
+              step_order: mg.step_order || 1,
+              min_select: mg.min_select || 1,
+              max_select: mg.max_select || 1
+            })
+            .select()
+            .single();
+          
+          if (!groupError && group && mg.product_modifier_items) {
+            const itemsToInsert = mg.product_modifier_items
+              .filter((i: any) => i.linked_product_id)
+              .map((i: any) => ({
+                group_id: group.id,
+                linked_product_id: i.linked_product_id,
+                is_fixed_price: i.is_fixed_price || false,
+                extra_price: parseFloat(i.extra_price) || 0
+              }));
+            
+            if (itemsToInsert.length > 0) {
+              await supabase.from('product_modifier_items').insert(itemsToInsert);
+            }
+          }
+        }
+      }
+
+      // Handle batches
+      if (batches) {
+        // Delete existing batches for this product first (to sync)
+        await supabase.from('product_batches').delete().eq('product_id', productId);
+        if (batches.length > 0) {
+          const batchData = batches.map((b: any) => ({
+            product_id: productId,
+            quantity: parseFloat(b.qty) || 0,
+            unit_size: parseFloat(b.size) || 1,
+            total_price: parseFloat(b.totalPrice) || 0,
+            remaining_stock: (parseFloat(b.qty) || 0) * (parseFloat(b.size) || 1)
+          }));
+          const { error: batchError } = await supabase.from('product_batches').insert(batchData);
+          if (batchError) throw batchError;
+        }
+      }
+
       if (product.type === 'variable' && child_product_ids !== undefined) {
         // Remove those that are no longer selected
         await supabase.from('products').update({ parent_id: null }).eq('parent_id', productId);
@@ -171,10 +244,55 @@ export const api = {
         }
       }
 
+      // Handle Modifiers for new product
+      if (modifier_groups) {
+        for (const mg of modifier_groups) {
+          const { data: group, error: groupError } = await supabase
+            .from('product_modifier_groups')
+            .insert({
+              product_id: productId,
+              name: mg.name,
+              step_order: mg.step_order || 1,
+              min_select: mg.min_select || 1,
+              max_select: mg.max_select || 1
+            })
+            .select()
+            .single();
+          
+          if (!groupError && group && mg.product_modifier_items) {
+            const itemsToInsert = mg.product_modifier_items
+              .filter((i: any) => i.linked_product_id)
+              .map((i: any) => ({
+                group_id: group.id,
+                linked_product_id: i.linked_product_id,
+                is_fixed_price: i.is_fixed_price || false,
+                extra_price: parseFloat(i.extra_price) || 0
+              }));
+            
+            if (itemsToInsert.length > 0) {
+              await supabase.from('product_modifier_items').insert(itemsToInsert);
+            }
+          }
+        }
+      }
+
       if (product.type === 'variable' && child_product_ids !== undefined) {
         if (child_product_ids.length > 0) {
           await supabase.from('products').update({ parent_id: productId }).in('id', child_product_ids);
         }
+      }
+
+      // Handle batches for new product
+      if (batches && batches.length > 0) {
+        const batchData = batches.map((b: any) => ({
+          product_id: productId,
+          quantity: parseFloat(b.qty) || 0,
+          unit_size: parseFloat(b.size) || 1,
+          total_price: parseFloat(b.totalPrice) || 0,
+          remaining_stock: (parseFloat(b.qty) || 0) * (parseFloat(b.size) || 1)
+        }));
+        const { error: batchError } = await supabase.from('product_batches').insert(batchData);
+        if (batchError) throw batchError;
       }
     }
     return { id: productId };
@@ -204,16 +322,90 @@ export const api = {
     if (!cleanData.phone || cleanData.phone.trim() === '') {
       delete cleanData.phone;
     }
+    if (!cleanData.fixed_pulseira || cleanData.fixed_pulseira.trim() === '') {
+      delete cleanData.fixed_pulseira;
+    } else {
+      cleanData.fixed_pulseira = cleanData.fixed_pulseira.replace(/\D/g, '').padStart(4, '0');
+    }
 
     const { data: customer, error } = await supabase.from('customers').insert(cleanData).select().single();
     if (error) {
-      if (error.code === '23505') throw new Error('Documento já cadastrado');
+      if (error.code === '23505') throw new Error('Documento ou Pulseira Fixa já cadastrados');
       throw error;
     }
     return customer;
   },
 
+  saveCustomer: async (customer: any) => {
+    const cleanData = { ...customer };
+    if (!cleanData.fixed_pulseira || cleanData.fixed_pulseira.trim() === '') {
+      cleanData.fixed_pulseira = null;
+    } else {
+      cleanData.fixed_pulseira = cleanData.fixed_pulseira.replace(/\D/g, '').padStart(4, '0');
+    }
+    const { error } = await supabase.from('customers').update(cleanData).eq('id', customer.id);
+    if (error) {
+       if (error.code === '23505') throw new Error('Pulseira Fixa já está em uso');
+       throw error;
+    }
+  },
+  getFixedCustomers: async () => {
+    const { data, error } = await supabase.from('customers').select('*').not('fixed_pulseira', 'is', null).order('name');
+    if (error) throw error;
+    return data;
+  },
+  deleteCustomer: async (id: number) => {
+    const { error } = await supabase.from('customers').delete().eq('id', id);
+    if (error) throw error;
+    return { success: true };
+  },
+  getCustomerHistory: async (customerId: number, startDate?: string, endDate?: string) => {
+    let oq = supabase.from('orders').select('*, items:order_items(quantity, price_at_time, products(name))').eq('customer_id', customerId).order('created_at', { ascending: false });
+    if (startDate) oq = oq.gte('created_at', startDate);
+    if (endDate) oq = oq.lte('created_at', endDate);
+    
+    // Also include test fixed orders if manually linked by name
+    const [ordersRes] = await Promise.all([oq]);
+    if (ordersRes.error) throw ordersRes.error;
+
+    return {
+      orders: ordersRes.data || [],
+      transactions: [] // Transactions are usually linked to employees, but we could fetch them for the order later if needed
+    };
+  },
+
   // Orders
+  getOpenOrdersSummary: async () => {
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('id, pulseira, customer_name, created_at')
+      .eq('status', 'open')
+      .not('id', 'in', '(6,7)')
+      .order('pulseira', { ascending: true });
+    if (error) throw error;
+    if (!orders || orders.length === 0) return [];
+
+    const orderIds = orders.map(o => o.id);
+    const { data: items, error: itemsError } = await supabase
+      .from('order_items')
+      .select('order_id, quantity, price_at_time')
+      .in('order_id', orderIds);
+    if (itemsError) throw itemsError;
+
+    return orders.map((order: any) => {
+      const orderItems = (items || []).filter(i => i.order_id === order.id);
+      const total = orderItems.reduce((acc: number, i: any) => acc + (i.price_at_time * i.quantity), 0);
+      const itemsCount = orderItems.reduce((acc: number, i: any) => acc + i.quantity, 0);
+      return {
+        id: order.id,
+        pulseira: order.pulseira,
+        customer_name: order.customer_name,
+        total,
+        items_count: itemsCount,
+        created_at: order.created_at
+      };
+    });
+  },
   getOrders: async (status?: string, period?: string) => {
     let query = supabase.from('orders').select('*').order('created_at', { ascending: false });
     if (status) query = query.eq('status', status);
@@ -245,14 +437,28 @@ export const api = {
     const orderIds = orders.map(o => o.id);
     const { data: items, error: itemsError } = await supabase
       .from('order_items')
-      .select(`*, products (name)`)
+      .select(`
+        *, 
+        products (name),
+        modifiers:order_item_modifiers(
+          *,
+          product:products(name)
+        )
+      `)
       .in('order_id', orderIds);
 
     if (itemsError) throw itemsError;
 
     return orders.map((order: any) => ({
       ...order,
-      items: items.filter(i => i.order_id === order.id).map((i: any) => ({ ...i, product_name: i.products?.name }))
+      items: items.filter(i => i.order_id === order.id).map((i: any) => ({ 
+        ...i, 
+        product_name: i.products?.name,
+        modifiers: i.modifiers.map((m: any) => ({
+          ...m,
+          product_name: m.product?.name
+        }))
+      }))
     }));
   },
   getOrder: async (pulseira: string) => {
@@ -262,28 +468,111 @@ export const api = {
 
     const { data: items, error: itemsError } = await supabase
       .from('order_items')
-      .select(`*, products(name)`)
+      .select(`
+        *, 
+        products(name),
+        modifiers:order_item_modifiers(
+          *,
+          product:products(name)
+        )
+      `)
       .eq('order_id', order.id);
     if (itemsError) throw itemsError;
 
+    // Resolve fixed info to ensure latest names/discounts are present
+    const owner = await api.findFixedOwner(pulseira);
+
     return {
       ...order,
-      items: items.map((i: any) => ({ ...i, product_name: i.products?.name }))
+      customer_name: owner?.name || order.customer_name,
+      discount_percentage: owner?.discount_percentage ?? order.discount_percentage,
+      discount_cap: owner?.discount_cap ?? order.discount_cap,
+      is_fixed: !!owner,
+      fixed_type: owner?.type,
+      items: items.map((i: any) => ({ 
+        ...i, 
+        product_name: i.products?.name,
+        modifiers: i.modifiers.map((m: any) => ({
+          ...m,
+          product_name: m.product?.name
+        }))
+      }))
     };
   },
-  createOrder: async (data: { pulseira: string, customer_name: string, customer_phone?: string, customer_id?: number }) => {
+  findFixedOwner: async (pulseira: string) => {
+    // Normaliza: busca tanto "0100" quanto "100" para cobrir inconsistências no banco
+    const padded = pulseira.replace(/\D/g, '').padStart(4, '0');
+    const unpadded = String(parseInt(pulseira));
+    const variants = Array.from(new Set([padded, unpadded]));
+
+    // 1. Check Employees
+    const { data: emps } = await supabase
+      .from('employees')
+      .select('id, name, discount_percentage, discount_cap')
+      .in('fixed_pulseira', variants);
+    const emp = emps?.[0];
+    if (emp) return { type: 'employee', id: emp.id, name: emp.name, discount_percentage: emp.discount_percentage, discount_cap: emp.discount_cap };
+
+    // 2. Check Customers
+    const { data: custs } = await supabase
+      .from('customers')
+      .select('id, name')
+      .in('fixed_pulseira', variants);
+    const cust = custs?.[0];
+    if (cust) return { type: 'customer', id: cust.id, name: cust.name };
+
+    return null;
+  },
+  createOrder: async (data: { pulseira: string, customer_name: string, customer_phone?: string, customer_id?: number, discount_percentage?: number, discount_cap?: number }) => {
     const { data: existing } = await supabase.from('orders').select('id').eq('pulseira', data.pulseira).eq('status', 'open').maybeSingle();
     if (existing) throw new Error('Order already open for this pulseira');
 
+    // Auto-detect if this pulseira belongs to someone fixed if donor is empty or not provided
+    let finalData = { ...data };
+    
+    // Range check for 9975-9999
+    const pNum = parseInt(data.pulseira);
+    const isEmployeeRange = pNum >= 9975 && pNum <= 9999;
+
+    const owner = await api.findFixedOwner(data.pulseira);
+    if (owner) {
+      finalData.customer_name = owner.name;
+      if (owner.type === 'customer') finalData.customer_id = owner.id as any;
+      if (owner.type === 'employee') {
+        finalData.discount_percentage = owner.discount_percentage;
+        finalData.discount_cap = owner.discount_cap;
+      }
+    } else if (isEmployeeRange) {
+      // In this range, if no owner found, we might block or handle differently
+      // The user wants it restricted.
+      console.log("No fixed owner for employee range pulseira");
+    }
+
     const employee_id = localStorage.getItem('pos_employee_id');
-    const enrichedData = { ...data, employee_id: employee_id || null };
+    const enrichedData = { ...finalData, employee_id: employee_id || null };
 
     const { data: order, error } = await supabase.from('orders').insert(enrichedData).select().single();
     if (error) throw error;
     return order;
   },
-  addOrderItems: async (orderId: number, items: { id: number, quantity: number }[]) => {
+  fixPulseira: async (pulseira: string, ownerType: 'employee' | 'customer', ownerId: string | number) => {
+    const table = ownerType === 'employees' ? 'employees' : 'customers';
+    const { error } = await supabase.from(table).update({ fixed_pulseira: pulseira }).eq('id', ownerId);
+    if (error) {
+      if (error.code === '23505') throw new Error('Esta pulseira já está fixada para outra pessoa.');
+      throw error;
+    }
+    return { success: true };
+  },
+  unfixPulseira: async (ownerType: 'employee' | 'customer', ownerId: string | number) => {
+    const table = ownerType === 'employees' ? 'employees' : 'customers';
+    const { error } = await supabase.from(table).update({ fixed_pulseira: null }).eq('id', ownerId);
+    if (error) throw error;
+    return { success: true };
+  },
+  addOrderItems: async (orderId: number, items: any[]) => {
     // 1. Fetch all product details needed for price_at_time in a single query
+    // This is a safety check. For items with modifiers, we trust the calculated price from frontend
     const productIds = items.map(i => i.id);
     const { data: products, error: prodError } = await supabase
       .from('products')
@@ -292,22 +581,43 @@ export const api = {
 
     if (prodError) throw prodError;
 
-    // 2. Prepare bulk insert array
-    const insertData = items.map(item => {
+    // 2. Process items one by one to handle modifiers
+    for (const item of items) {
       const product = products.find(p => p.id === item.id);
-      if (!product) throw new Error(`Product ${item.id} not found`);
-      return {
-        order_id: orderId,
-        product_id: item.id,
-        quantity: item.quantity,
-        price_at_time: product.price,
-        cost_at_time: product.cost_price || 0
-      };
-    });
+      if (!product) continue;
 
-    // 3. Bulk insert into order_items
-    const { error } = await supabase.from('order_items').insert(insertData);
-    if (error) throw error;
+      // Use the overridden price if provided (calculated in frontend for combos)
+      const finalPrice = item.price_at_time !== undefined ? item.price_at_time : product.price;
+      const finalCost = item.cost_at_time !== undefined ? item.cost_at_time : (product.cost_price || 0);
+
+      const { data: insertedItem, error: itemError } = await supabase
+        .from('order_items')
+        .insert({
+          order_id: orderId,
+          product_id: item.id,
+          quantity: item.quantity,
+          price_at_time: finalPrice,
+          cost_at_time: finalCost
+        })
+        .select()
+        .single();
+
+      if (itemError) throw itemError;
+
+      // 3. Handle modifiers if any
+      if (item.modifiers && item.modifiers.length > 0) {
+        const modifierInserts = item.modifiers.map((m: any) => ({
+          order_item_id: insertedItem.id,
+          modifier_item_id: m.modifier_item_id,
+          product_id: m.product_id,
+          price_at_time: m.price_at_time,
+          cost_at_time: m.cost_at_time || 0
+        }));
+
+        const { error: modError } = await supabase.from('order_item_modifiers').insert(modifierInserts);
+        if (modError) throw modError;
+      }
+    }
 
     return { success: true };
   },
@@ -348,6 +658,25 @@ export const api = {
     return { success: true };
   },
 
+  paySplitOrder: async (orderId: number, entries: Array<{ amount: number; method: string }>) => {
+    const employee_id = localStorage.getItem('pos_employee_id');
+    for (const entry of entries) {
+      const { error } = await supabase.from('transactions').insert({
+        order_id: orderId,
+        amount: entry.amount,
+        method: entry.method,
+        employee_id: employee_id || null
+      });
+      if (error) throw error;
+    }
+    const { error: updError } = await supabase.from('orders').update({
+      status: 'paid',
+      closed_at: new Date().toISOString()
+    }).eq('id', orderId);
+    if (updError) throw updError;
+    return { success: true };
+  },
+
   getEmployeeHistory: async (employeeId: string, startDate?: string, endDate?: string) => {
     let oq = supabase.from('orders').select('*, items:order_items(quantity, price_at_time, products(name))').eq('employee_id', employeeId).order('created_at', { ascending: false });
     if (startDate) oq = oq.gte('created_at', startDate);
@@ -385,15 +714,25 @@ export const api = {
     if (startDate) cq = cq.gte('opened_at', startDate);
     if (endDate) cq = cq.lte('opened_at', endDate);
 
-    const [ordersRes, transactionsRes, cashierRes] = await Promise.all([oq, tq, cq]);
+    // Fixed pulseiras (employees + customers) — excluded from cashier stats
+    const fq1 = supabase.from('employees').select('fixed_pulseira').not('fixed_pulseira', 'is', null);
+    const fq2 = supabase.from('customers').select('fixed_pulseira').not('fixed_pulseira', 'is', null);
+
+    const [ordersRes, transactionsRes, cashierRes, fixedEmpsRes, fixedCustsRes] = await Promise.all([oq, tq, cq, fq1, fq2]);
     if (ordersRes.error) throw ordersRes.error;
     if (transactionsRes.error) throw transactionsRes.error;
     if (cashierRes.error) throw cashierRes.error;
 
+    const fixedPulseiras = new Set([
+      ...(fixedEmpsRes.data || []).map((e: any) => e.fixed_pulseira),
+      ...(fixedCustsRes.data || []).map((c: any) => c.fixed_pulseira),
+    ]);
+
     return {
       orders: ordersRes.data || [],
       transactions: transactionsRes.data || [],
-      cashier_sessions: cashierRes.data || []
+      cashier_sessions: cashierRes.data || [],
+      fixedPulseiras: [...fixedPulseiras]
     };
   },
 
@@ -615,13 +954,29 @@ export const api = {
   },
 
   saveEmployee: async (employee: any) => {
-    if (employee.id) {
-      const { error } = await supabase.from('employees').update(employee).eq('id', employee.id);
-      if (error) throw error;
+    const cleanData = { ...employee };
+    if (!cleanData.fixed_pulseira || cleanData.fixed_pulseira.trim() === '') {
+      cleanData.fixed_pulseira = null;
     } else {
-      const { id, ...newEmployee } = employee;
+      cleanData.fixed_pulseira = cleanData.fixed_pulseira.replace(/\D/g, '').padStart(4, '0');
+    }
+    if (!cleanData.pin || (typeof cleanData.pin === 'string' && cleanData.pin.trim() === '')) {
+      cleanData.pin = null;
+    }
+
+    if (employee.id) {
+      const { error } = await supabase.from('employees').update(cleanData).eq('id', employee.id);
+      if (error) {
+         if (error.code === '23505') throw new Error('Pulseira Fixa já está em uso por outro funcionário.');
+         throw error;
+      }
+    } else {
+      const { id, ...newEmployee } = cleanData;
       const { error } = await supabase.from('employees').insert([newEmployee]);
-      if (error) throw error;
+      if (error) {
+         if (error.code === '23505') throw new Error('Pulseira Fixa já está em uso.');
+         throw error;
+      }
     }
   },
 
@@ -900,5 +1255,75 @@ export const api = {
     const { error } = await supabase.from('product_batches').delete().eq('id', id);
     if (error) throw error;
     return { success: true };
-  }
+  },
+
+  // Merge: move all items from sourcePulseira into targetOrderId, then cancel source
+  mergeOrder: async (sourcePulseira: string, targetOrderId: number) => {
+    const { data: sourceOrder, error: srcError } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('pulseira', sourcePulseira)
+      .eq('status', 'open')
+      .maybeSingle();
+
+    if (srcError) throw srcError;
+    if (!sourceOrder) throw new Error('Comanda de origem não encontrada ou já fechada.');
+    if (sourceOrder.id === targetOrderId) throw new Error('Não é possível importar a mesma comanda.');
+
+    const { error: moveError } = await supabase
+      .from('order_items')
+      .update({ order_id: targetOrderId })
+      .eq('order_id', sourceOrder.id);
+    if (moveError) throw moveError;
+
+    const { error: cancelError } = await supabase
+      .from('orders')
+      .update({ status: 'cancelled', closed_at: new Date().toISOString() })
+      .eq('id', sourceOrder.id);
+    if (cancelError) throw cancelError;
+
+    return { success: true };
+  },
+
+  // Transfer: move items from current order to a fixed customer's order (create dest if needed)
+  transferOrder: async (sourceOrderId: number, destPulseira: string) => {
+    const padded = destPulseira.replace(/\D/g, '').padStart(4, '0');
+
+    // 1. Destination must belong to a fixed customer or employee
+    const owner = await api.findFixedOwner(padded);
+    if (!owner) throw new Error('Pulseira de destino não pertence a nenhum cliente ou funcionário fixo.');
+
+    // 2. Find or create open order for destination pulseira
+    let { data: destOrder } = await supabase
+      .from('orders').select('id')
+      .eq('pulseira', padded).eq('status', 'open').maybeSingle();
+
+    if (!destOrder) {
+      const insertData: any = { pulseira: padded, customer_name: owner.name };
+      if (owner.type === 'employee') {
+        insertData.discount_percentage = (owner as any).discount_percentage;
+        insertData.discount_cap = (owner as any).discount_cap;
+      }
+      const { data: newOrder, error: createError } = await supabase
+        .from('orders').insert(insertData).select().single();
+      if (createError) throw createError;
+      destOrder = newOrder;
+    }
+
+    if (destOrder.id === sourceOrderId) throw new Error('Origem e destino são a mesma comanda.');
+
+    // 3. Move all items
+    const { error: moveError } = await supabase
+      .from('order_items').update({ order_id: destOrder.id })
+      .eq('order_id', sourceOrderId);
+    if (moveError) throw moveError;
+
+    // 4. Cancel source order
+    const { error: cancelError } = await supabase
+      .from('orders').update({ status: 'cancelled', closed_at: new Date().toISOString() })
+      .eq('id', sourceOrderId);
+    if (cancelError) throw cancelError;
+
+    return { success: true, destPulseira: padded, destOrderId: destOrder.id };
+  },
 };

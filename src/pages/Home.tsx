@@ -1,7 +1,13 @@
 import { Link } from 'react-router-dom';
-import { Beer, ClipboardList } from 'lucide-react';
+import { Beer, ClipboardList, LogOut } from 'lucide-react';
 
-export default function Home() {
+interface HomeProps {
+  onLogout: () => void;
+}
+
+export default function Home({ onLogout }: HomeProps) {
+  const employeeName = localStorage.getItem('pos_employee_name') || '';
+
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
       {/* Background Effects */}
@@ -16,6 +22,7 @@ export default function Home() {
             Baragem POS
           </h1>
           <p className="text-slate-400">Sistema de Gestão de Bar</p>
+          {employeeName && <p className="text-sm text-slate-500">Logado como <span className="text-slate-300 font-medium">{employeeName}</span></p>}
         </div>
 
         <div className="grid gap-4">
@@ -45,6 +52,17 @@ export default function Home() {
             </div>
           </Link>
         </div>
+
+        <button
+          onClick={() => {
+            if (!confirm('Deseja realmente sair dessa conta?')) return;
+            onLogout();
+          }}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all duration-200 text-sm font-medium"
+        >
+          <LogOut size={16} />
+          Sair / Trocar Usuário
+        </button>
       </div>
     </div>
   );

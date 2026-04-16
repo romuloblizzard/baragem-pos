@@ -4,24 +4,56 @@ import { Link } from 'react-router-dom';
 
 import {
   Search, Plus, Minus, ShoppingCart, User, CreditCard,
-  ChevronLeft, Check, X, Home, Filter, List, PlusCircle, Trash2, LogOut
+  ChevronLeft, Check, X, Home, Filter, List, PlusCircle, Trash2, RefreshCw, ClipboardList
 } from 'lucide-react';
 
 export default function Waiter() {
-  const [view, setView] = useState<'home' | 'order'>('home');
+  const [view, setViewInternal] = useState<'home' | 'order'>('home');
+  const setView = (v: 'home' | 'order') => {
+    setViewInternal(v);
+    if (v === 'home') {
+      // Auto-refresh open orders when returning to home
+      loadOpenOrders();
+    }
+  };
   const [pulseira, setPulseira] = useState('');
+
+  // Helper: limita a 4 dígitos numéricos e auto-pad com zeros
+  const handlePulseiraChange = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 4);
+    setPulseira(digits);
+  };
+  const padPulseira = (value: string) => {
+    if (!value) return '';
+    return value.replace(/\D/g, '').slice(0, 4).padStart(4, '0');
+  };
   const [currentOrder, setCurrentOrder] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedVariableProduct, setSelectedVariableProduct] = useState<any>(null);
+  const [wizardProduct, setWizardProduct] = useState<any>(null);
+  const [wizardStep, setWizardStep] = useState(0);
+  const [wizardSelections, setWizardSelections] = useState<any[]>([]);
   const [cart, setCart] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isConsumptionOpen, setIsConsumptionOpen] = useState(false);
   const [itemToSwap, setItemToSwap] = useState<any>(null);
   const [swapSearchTerm, setSwapSearchTerm] = useState('');
+
+  // Merge order state
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [mergePulseira, setMergePulseira] = useState('');
+  const [isMerging, setIsMerging] = useState(false);
+
+  // Transfer order state
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferSearch, setTransferSearch] = useState('');
+  const [transferResults, setTransferResults] = useState<any[]>([]);
+  const [isTransferring, setIsTransferring] = useState(false);
 
 
   // Customer Linking State
@@ -35,12 +67,36 @@ export default function Waiter() {
   const [identifiedCustomer, setIdentifiedCustomer] = useState<any>(null);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
 
+  // Fix Pulseira State
+  const [isFixModalOpen, setIsFixModalOpen] = useState(false);
+  const [fixSearchTerm, setFixSearchTerm] = useState('');
+  const [fixResults, setFixResults] = useState<{ employees: any[], customers: any[] }>({ employees: [], customers: [] });
+
   // Unified Payment State
   const [ordersToPay, setOrdersToPay] = useState<any[]>([]);
   const [extraPulseira, setExtraPulseira] = useState('');
   const [includeServiceFee, setIncludeServiceFee] = useState(true);
   const [coverFee, setCoverFee] = useState(0);
   const [settings, setSettings] = useState<any>({});
+  const [splitEntries, setSplitEntries] = useState<Array<{ id: string; method: string; amount: number }>>([]);
+  const [splitInputAmount, setSplitInputAmount] = useState('');
+  const [splitInputMethod, setSplitInputMethod] = useState<'cash' | 'debit' | 'credit' | 'pix'>('cash');
+
+  // Open Orders Panel State
+  const [openOrders, setOpenOrders] = useState<any[]>([]);
+  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+
+  const loadOpenOrders = async () => {
+    setIsLoadingOrders(true);
+    try {
+      const orders = await api.getOpenOrdersSummary();
+      setOpenOrders(orders);
+    } catch (err) {
+      console.error('Erro ao carregar comandas abertas:', err);
+    } finally {
+      setIsLoadingOrders(false);
+    }
+  };
 
   const [isLoading, setIsLoading] = useState(false);
 
@@ -48,19 +104,66 @@ export default function Waiter() {
     api.getProducts().then(setProducts);
     api.getCategories().then(setCategories);
     api.getSettings().then(setSettings);
+    loadOpenOrders();
   }, []);
 
 
 
-  const handleEnterOrder = async () => {
-    if (!pulseira) return;
+  const handleEnterOrder = async (overridePulseira?: string) => {
+    const rawPulseira = overridePulseira || pulseira;
+    if (!rawPulseira) return;
+    const paddedPulseira = padPulseira(rawPulseira);
+    setPulseira(paddedPulseira);
+
+    const pNum = parseInt(paddedPulseira);
+    const isRestricted = pNum >= 9975 && pNum <= 9999;
+
     setIsLoading(true);
     try {
-      const order = await api.getOrder(pulseira);
-      setCurrentOrder(order);
-      setView('order');
+      let owner = null;
+      if (isRestricted) {
+        owner = await api.findFixedOwner(paddedPulseira);
+        if (!owner) {
+          alert('Esta faixa de comandas (9975-9999) é exclusiva para funcionários cadastrados.');
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      try {
+        const order = await api.getOrder(paddedPulseira);
+        setCurrentOrder(order);
+        setView('order');
+      } catch (err) {
+        // Comanda 0000 = cliente rotativo, cria automaticamente sem modal
+        if (paddedPulseira === '0000') {
+          await api.createOrder({ pulseira: '0000', customer_name: 'Rotativo' });
+          const order = await api.getOrder('0000');
+          setCurrentOrder(order);
+          setView('order');
+          return;
+        }
+
+        // Para pulseiras fora da faixa restrita, também verifica dono fixo
+        if (!owner) {
+          owner = await api.findFixedOwner(paddedPulseira);
+        }
+
+        // Se tem dono fixo (funcionário ou cliente), cria automaticamente sem modal
+        if (owner) {
+          await api.createOrder({ pulseira: paddedPulseira, customer_name: owner.name });
+          const order = await api.getOrder(paddedPulseira);
+          setCurrentOrder(order);
+          setView('order');
+          return;
+        }
+
+        // Pulseira livre — abre modal para vincular cliente
+        setIsModalOpen(true);
+      }
     } catch (err) {
-      setIsModalOpen(true);
+      console.error(err);
+      alert('Erro ao carregar comanda.');
     } finally {
       setIsLoading(false);
     }
@@ -96,7 +199,7 @@ export default function Waiter() {
     const formData = new FormData(e.target as HTMLFormElement);
     const formPulseira = formData.get('pulseira') as string;
 
-    const finalPulseira = formPulseira || pulseira;
+    const finalPulseira = padPulseira(formPulseira || pulseira);
 
     if (!finalPulseira) {
       alert('Pulseira é obrigatória');
@@ -140,7 +243,9 @@ export default function Waiter() {
         customer_id: customerId
       });
 
-      setCurrentOrder({ id: res.id, pulseira: finalPulseira, customer_name: customerName, customer_phone: customerPhone, items: [] });
+      // Fetch refined order with discount info
+      const order = await api.getOrder(finalPulseira);
+      setCurrentOrder(order);
       setPulseira(finalPulseira);
       setIsModalOpen(false);
       setView('order');
@@ -148,9 +253,57 @@ export default function Waiter() {
       setCustomerForm({ name: '', nickname: '', birthday: '', document: '', phone: '' });
       setIdentifiedCustomer(null);
 
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSearchFix = async (term: string) => {
+    setFixSearchTerm(term);
+    if (term.length < 2) {
+      setFixResults({ employees: [], customers: [] });
+      return;
+    }
+    try {
+      const emps = await api.getEmployees();
+      const custs = await api.searchCustomers(term);
+      const filteredEmps = emps.filter((e: any) => e.name.toLowerCase().includes(term.toLowerCase()));
+      setFixResults({ employees: filteredEmps, customers: custs });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleFixPulseira = async (type: 'employee' | 'customer', id: any) => {
+    if (!currentOrder) return;
+    setIsLoading(true);
+    try {
+      await api.fixPulseira(currentOrder.pulseira, type, id);
+      alert('Comanda fixada com sucesso!');
+      setIsFixModalOpen(false);
+      setFixSearchTerm('');
+      const updated = await api.getOrder(currentOrder.pulseira);
+      setCurrentOrder(updated);
     } catch (err: any) {
-      console.error(err);
-      alert(err.message || 'Erro ao criar pedido. Verifique se a pulseira já está em uso.');
+      alert(err.message || 'Erro ao fixar comanda');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUnfixCurrent = async () => {
+    if (!currentOrder || !confirm('Deseja remover o vínculo fixo desta comanda?')) return;
+    setIsLoading(true);
+    try {
+      const owner = await api.findFixedOwner(currentOrder.pulseira);
+      if (owner) {
+        await api.unfixPulseira(owner.type as 'employee' | 'customer', owner.id);
+        alert('Vínculo removido.');
+        const updated = await api.getOrder(currentOrder.pulseira);
+        setCurrentOrder(updated);
+      }
+    } catch (err: any) {
+      alert('Erro ao desfixar');
     } finally {
       setIsLoading(false);
     }
@@ -188,19 +341,26 @@ export default function Waiter() {
     }
   };
 
-  const [selectedVariableProduct, setSelectedVariableProduct] = useState<any>(null);
-
   const addToCart = (product: any) => {
+    // If it has modifiers, open wizard
+    if (product.modifier_groups && product.modifier_groups.length > 0 && !product.__is_calculated) {
+      setWizardProduct(product);
+      setWizardStep(0);
+      setWizardSelections([]);
+      return;
+    }
+
     if (product.type === 'variable') {
       setSelectedVariableProduct(product);
       return;
     }
 
-    const currentCartQty = cart.find(item => item.id === product.id)?.quantity || 0;
+    const existing = cart.find(item => item.id === product.id && !item.modifiers);
+    const intentQty = (existing?.quantity || 0) + 1;
 
     // Check stock for composition
     if (product.type === 'composition') {
-      if (currentCartQty + 1 > product.stock) {
+      if (intentQty > product.stock) {
         alert('Produto esgotado (ingredientes insuficientes)');
         return;
       }
@@ -211,7 +371,7 @@ export default function Waiter() {
         available = Math.floor(product.stock);
       }
 
-      if (currentCartQty + 1 > available) {
+      if (intentQty > available) {
         if (product.category_name === 'Garrafa' && available === 0 && product.stock > 0) {
           alert(`Você tem apenas garrafa(s) aberta(s) de ${product.name}. Venda direta bloqueada.`);
         } else {
@@ -240,13 +400,67 @@ export default function Waiter() {
     });
   };
 
+  const finalizeWizard = () => {
+    if (!wizardProduct) return;
+
+    // 1. Calculate the Ratio for inclusive items
+    // Sum of original prices of all chosen items
+    const totalOriginalPrice = wizardSelections.reduce((acc, sel) => acc + (sel.original_price || 0), 0);
+    const ratio = totalOriginalPrice > 0 ? (wizardProduct.price / totalOriginalPrice) : 1;
+
+    // 2. Adjust prices
+    let finalComboPrice = 0;
+    const finalModifiers = wizardSelections.map(sel => {
+      // Find the name for history transparency
+      const p = products.find(prod => prod.id === sel.product_id);
+      const adjustedPrice = sel.is_fixed_price ? sel.original_price : (sel.original_price * ratio);
+      finalComboPrice += adjustedPrice;
+      return {
+        modifier_item_id: sel.modifier_item_id,
+        product_id: sel.product_id,
+        product_name: p?.name || 'Item',
+        price_at_time: adjustedPrice,
+        cost_at_time: sel.cost_at_time || 0
+      };
+    });
+
+    // 3. Add to cart as a "calculated" item
+    const comboInstance = {
+      ...wizardProduct,
+      id: `${wizardProduct.id}_${Date.now()}`, // Unique ID for cart management
+      base_product_id: wizardProduct.id,
+      __is_calculated: true,
+      price: finalComboPrice,
+      price_at_time: finalComboPrice,
+      quantity: 1,
+      modifiers: finalModifiers
+    };
+
+    setCart([...cart, comboInstance]);
+    setWizardProduct(null);
+  };
+
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
 
   const submitOrder = async () => {
     if (!currentOrder || isSubmittingOrder || cart.length === 0) return;
     setIsSubmittingOrder(true);
     try {
-      const itemsToInsert = cart.map(item => ({ id: item.id, quantity: item.quantity }));
+      const itemsToInsert = cart.map(item => {
+        // Para combos/wizard, o custo é a soma dos custos dos modificadores
+        // Para simples/composição, usa o cost_price do produto (já calculado dinamicamente pelo getProducts)
+        const costAtTime = (item.modifiers && item.modifiers.length > 0)
+          ? item.modifiers.reduce((sum: number, m: any) => sum + (m.cost_at_time || 0), 0)
+          : (item.cost_price || 0);
+
+        return {
+          id: item.base_product_id || item.id,
+          quantity: item.quantity,
+          price_at_time: item.price_at_time || item.price,
+          cost_at_time: costAtTime,
+          modifiers: item.modifiers
+        };
+      });
       await api.addOrderItems(currentOrder.id, itemsToInsert);
 
       setCart([]);
@@ -348,34 +562,39 @@ export default function Waiter() {
     printWindow.document.close();
   };
 
-  const handlePayment = async (method: string) => {
-    if (ordersToPay.length === 0) return;
-
+  const handleSplitPayment = async () => {
+    if (ordersToPay.length === 0 || splitEntries.length === 0) return;
     try {
-      // Calculate total for all orders
       const subtotal = ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
-      const serviceValue = includeServiceFee ? subtotal * 0.1 : 0;
-      const finalTotal = subtotal + serviceValue + coverFee;
+      const totalDiscount = ordersToPay.reduce((acc, order) => {
+        const sub = order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0);
+        return acc + (Math.min(sub, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100));
+      }, 0);
+      const serviceValue = includeServiceFee ? (subtotal - totalDiscount) * 0.1 : 0;
+      const finalTotal = subtotal - totalDiscount + serviceValue + coverFee;
 
-      // Distribute the total payment proportionally or just pay each order's subtotal + share of fees?
-      // For simplicity, we will pay each order's subtotal, and add the fees to the first order or split them.
-      // However, the backend expects a payment amount for each order.
-      // If we pay more than the order total, it's just recorded as a transaction.
-      // Strategy: Pay each order its subtotal. Then create a separate transaction for fees? 
-      // Or just distribute the fees proportionally to the order value.
-
-      // Let's distribute the fees proportionally to each order's subtotal
       for (const order of ordersToPay) {
         const orderSubtotal = order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0);
-        const proportion = subtotal > 0 ? orderSubtotal / subtotal : 0;
-        const orderFees = (serviceValue + coverFee) * proportion;
-        const orderTotalToPay = orderSubtotal + orderFees;
+        const proportion = subtotal > 0 ? orderSubtotal / subtotal : 1 / ordersToPay.length;
+        const orderTotal = (orderSubtotal - (Math.min(orderSubtotal, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100))) * (1 + (includeServiceFee ? 0.1 : 0)) + coverFee * proportion;
 
-        await api.payOrder(order.id, orderTotalToPay, method);
+        const orderEntries = splitEntries.map(e => ({
+          method: e.method,
+          amount: parseFloat((e.amount * proportion).toFixed(2))
+        }));
+        // Adjust last entry to correct rounding so sum equals orderTotal
+        const entrySum = orderEntries.reduce((s, e) => s + e.amount, 0);
+        if (orderEntries.length > 0) {
+          orderEntries[orderEntries.length - 1].amount = Math.max(0, parseFloat((orderEntries[orderEntries.length - 1].amount + (orderTotal - entrySum)).toFixed(2)));
+        }
+
+        await api.paySplitOrder(order.id, orderEntries);
       }
 
       alert(`Conta(s) fechada(s) com sucesso! Total: R$ ${finalTotal.toFixed(2)}`);
       setIsPaymentModalOpen(false);
+      setSplitEntries([]);
+      setSplitInputAmount('');
       setOrdersToPay([]);
       setIncludeServiceFee(true);
       setCoverFee(0);
@@ -461,59 +680,45 @@ export default function Waiter() {
 
   if (view === 'home') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 p-6 flex flex-col items-center justify-center relative">
-        <button 
-          onClick={async () => {
-            if (!confirm('Deseja realmente sair dessa conta?')) return;
-            try { await api.logout(localStorage.getItem('pos_employee_id') || undefined); } catch (e) {}
-            localStorage.removeItem('pos_role');
-            localStorage.removeItem('pos_employee_name');
-            localStorage.removeItem('pos_login_time');
-            localStorage.removeItem('pos_employee_id');
-            window.location.href = '/';
-          }}
-          className="absolute top-6 right-6 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-colors"
-          title="Sair / Trocar Usuário"
-        >
-          <LogOut size={24} />
-        </button>
-        <Link to="/" className="absolute top-6 left-6 p-3 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors" title="Início">
-          <Home size={24} />
-        </Link>
-
-        <div className="w-full max-w-sm space-y-8">
-          <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold text-white">Painel do Garçom</h1>
-            <p className="text-slate-400">Digite a pulseira para iniciar</p>
+      <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col">
+        {/* Top Bar */}
+        <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <Link to="/" className="p-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-white transition-colors" title="Início">
+              <Home size={18} />
+            </Link>
+            <h1 className="text-lg font-extrabold text-white tracking-tight">Painel do Garçom</h1>
+            <div className="w-8" />
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Buscar Pulseira Existente</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={pulseira}
-                  onChange={(e) => setPulseira(e.target.value)}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-center text-2xl font-mono tracking-widest focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                  placeholder="0000"
-                />
-              </div>
+          {/* Single-line: Input + Acessar + Vincular */}
+          <div className="flex gap-2 items-stretch">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={16} />
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                value={pulseira}
+                onChange={(e) => handlePulseiraChange(e.target.value)}
+                onBlur={() => { if (pulseira) setPulseira(padPulseira(pulseira)); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleEnterOrder(); }}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-center text-xl font-mono tracking-[0.3em] focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-white placeholder-slate-600"
+                placeholder="0000"
+              />
             </div>
             <button
-              onClick={handleEnterOrder}
+              onClick={() => handleEnterOrder()}
               disabled={!pulseira || isLoading}
-              className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-xl font-bold text-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-5 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap flex items-center gap-1.5 shadow-lg shadow-blue-900/30"
             >
-              {isLoading ? <span className="animate-spin">⏳</span> : 'Acessar Pedido'}
+              {isLoading ? <span className="animate-spin text-sm">⏳</span> : (
+                <>
+                  <ChevronLeft size={14} className="rotate-180" />
+                  Acessar
+                </>
+              )}
             </button>
-
-            <div className="relative flex py-2 items-center">
-              <div className="flex-grow border-t border-slate-800"></div>
-              <span className="flex-shrink-0 mx-4 text-slate-500 text-xs uppercase">Ou</span>
-              <div className="flex-grow border-t border-slate-800"></div>
-            </div>
-
             <button
               onClick={() => {
                 setPulseira('');
@@ -521,13 +726,90 @@ export default function Waiter() {
                 setCustomerForm({ name: '', nickname: '', birthday: '', document: '', phone: '' });
                 setIdentifiedCustomer(null);
               }}
-              className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold text-lg transition-all active:scale-95 flex items-center justify-center gap-2 border border-slate-700"
+              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 hover:text-emerald-300 px-3 rounded-xl transition-all active:scale-95 flex items-center justify-center"
+              title="Vincular Cliente"
             >
               <PlusCircle size={20} />
-              Vincular Cliente
             </button>
           </div>
-        </div>
+        </header>
+
+        {/* Open Orders Panel — Main Content */}
+        <main className="flex-1 p-4 overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <ClipboardList size={18} className="text-blue-400" />
+              <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider">Comandas Abertas</h2>
+              {openOrders.length > 0 && (
+                <span className="bg-blue-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[20px] text-center leading-none">
+                  {openOrders.length}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={loadOpenOrders}
+              disabled={isLoadingOrders}
+              className="p-1.5 text-slate-500 hover:text-white transition-colors"
+              title="Atualizar"
+            >
+              <RefreshCw size={16} className={isLoadingOrders ? 'animate-spin' : ''} />
+            </button>
+          </div>
+
+          {isLoadingOrders && openOrders.length === 0 ? (
+            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-12 text-center">
+              <RefreshCw size={28} className="mx-auto mb-3 text-slate-600 animate-spin" />
+              <p className="text-slate-500 text-sm">Carregando comandas...</p>
+            </div>
+          ) : openOrders.length === 0 ? (
+            <div className="bg-slate-900/30 border border-dashed border-slate-800 rounded-2xl p-12 text-center">
+              <ClipboardList size={40} className="mx-auto mb-3 text-slate-800" />
+              <p className="text-slate-600 text-sm font-medium">Nenhuma comanda aberta</p>
+              <p className="text-slate-700 text-xs mt-1">Abra uma comanda digitando o número acima</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+              {openOrders.map(order => {
+                const totalWithFee = order.total * 1.1;
+                const getBg = (total: number) => {
+                  if (total >= 200) return 'bg-amber-500/5 border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/10';
+                  if (total >= 100) return 'bg-emerald-500/5 border-emerald-500/25 hover:border-emerald-400 hover:bg-emerald-500/10';
+                  if (total > 0) return 'bg-blue-500/5 border-blue-500/20 hover:border-blue-400 hover:bg-blue-500/10';
+                  return 'bg-slate-900/60 border-slate-700/50 hover:border-slate-500 hover:bg-slate-800/60';
+                };
+                const getValueColor = (total: number) => {
+                  if (total >= 200) return 'text-amber-400';
+                  if (total >= 100) return 'text-emerald-400';
+                  if (total > 0) return 'text-blue-400';
+                  return 'text-slate-500';
+                };
+
+                return (
+                  <button
+                    key={order.id}
+                    onClick={() => handleEnterOrder(order.pulseira)}
+                    className={`border rounded-xl p-3 text-center transition-all active:scale-95 flex flex-col items-center gap-1 group ${getBg(totalWithFee)}`}
+                  >
+                    <span className="text-2xl font-black font-mono text-white tracking-tight leading-none group-hover:text-blue-300 transition-colors">
+                      {order.pulseira}
+                    </span>
+                    <span className="text-2xl font-black text-slate-400 leading-tight line-clamp-1 w-full">
+                      {order.customer_name || '—'}
+                    </span>
+                    <span className={`text-2xl font-black ${getValueColor(totalWithFee)} leading-none`}>
+                      R$ {totalWithFee.toFixed(0)}
+                    </span>
+                    {order.items_count > 0 && (
+                      <span className="text-xs text-slate-600 leading-none">
+                        {order.items_count} {order.items_count === 1 ? 'item' : 'itens'}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </main>
 
         {isModalOpen && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -602,11 +884,14 @@ export default function Waiter() {
                     <input
                       name="pulseira"
                       type="text"
+                      inputMode="numeric"
+                      maxLength={4}
                       required
                       placeholder="0000"
                       value={pulseira}
-                      onChange={(e) => setPulseira(e.target.value)}
-                      className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white font-mono tracking-widest"
+                      onChange={(e) => handlePulseiraChange(e.target.value)}
+                      onBlur={() => { if (pulseira) setPulseira(padPulseira(pulseira)); }}
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white font-mono tracking-widest text-center text-xl"
                     />
                   </div>
                 </div>
@@ -627,7 +912,17 @@ export default function Waiter() {
   }
 
   const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-  const currentTotal = currentOrder?.items?.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0) || 0;
+  
+  // Refined total calculations including historical logic and new discounts
+  const subtotalConsumido = currentOrder?.items?.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0) || 0;
+  
+  // Discount Calculation logic
+  const discount_percentage = currentOrder?.discount_percentage || 0;
+  const discount_cap = currentOrder?.discount_cap || 0;
+  
+  // Applied Discount: min(subtotal, cap) * (percentage / 100)
+  const applied_discount = Math.min(subtotalConsumido, discount_cap) * (discount_percentage / 100);
+  const currentTotal = subtotalConsumido - applied_discount;
 
   const getCategoryColor = (name: string, isSelected: boolean) => {
     if (!name) return isSelected ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400';
@@ -648,23 +943,51 @@ export default function Waiter() {
     <div className={`min-h-screen bg-slate-950 text-slate-200 transition-[padding] duration-300 ${cart.length > 0 ? 'pb-[45vh]' : 'pb-24'}`}>
       {/* Header */}
       <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-        <button onClick={() => setView('home')} className="p-2 -ml-2 text-slate-400 hover:text-white">
-          <ChevronLeft />
+        <button
+          onClick={() => setView('home')}
+          className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 hover:bg-slate-700 hover:text-white active:scale-95 transition-all font-medium text-sm"
+        >
+          <ChevronLeft size={18} />
+          Painel
         </button>
-        <div className="text-center">
-          <h2 className="font-bold text-white">Pulseira #{pulseira}</h2>
-          <p className="text-xs text-slate-400">{currentOrder?.customer_name}</p>
+        <div className="text-center flex flex-col items-center">
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold text-white">Pulseira #{pulseira}</h2>
+            {currentOrder?.is_fixed && (
+              <span className="bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm border border-blue-500/20">
+                📌 FIXA
+              </span>
+            )}
+          </div>
+          <p className="text-lg font-bold text-emerald-400 mt-0.5 leading-none">{currentOrder?.customer_name || 'Cliente'}</p>
         </div>
-        <div className="w-8" /> {/* Spacer */}
+        <button 
+          onClick={() => setIsFixModalOpen(true)}
+          className={`p-2 rounded-xl transition-all ${currentOrder?.is_fixed ? 'text-blue-400' : 'text-slate-500 hover:text-white'}`}
+          title={currentOrder?.is_fixed ? 'Gerenciar Vínculo' : 'Fixar Comanda'}
+        >
+          <User size={24} />
+        </button>
       </header>
 
       <main className="p-4 space-y-6">
         {/* Current Tab Summary */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-          <div className="flex justify-between items-center mb-3">
-            <div>
-              <p className="text-xs text-slate-400 uppercase tracking-wider">Total Consumido</p>
-              <p className="text-2xl font-bold text-emerald-400">R$ {currentTotal.toFixed(2)}</p>
+        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 shadow-xl">
+          <div className="flex justify-between items-start mb-3">
+            <div className="space-y-1">
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Resumo de Consumo</p>
+              <div className="flex items-baseline gap-2">
+                 <p className="text-2xl font-black text-white">R$ {currentTotal.toFixed(2)}</p>
+                 {applied_discount > 0 && (
+                   <span className="text-xs text-slate-500 line-through">R$ {subtotalConsumido.toFixed(2)}</span>
+                 )}
+              </div>
+              {applied_discount > 0 && (
+                <div className="flex items-center gap-1.5 text-blue-400 font-bold text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  Desconto Aplicado: - R$ {applied_discount.toFixed(2)}
+                </div>
+              )}
             </div>
             <button
               onClick={() => setIsConsumptionOpen(true)}
@@ -674,8 +997,24 @@ export default function Waiter() {
               Ver Itens
             </button>
           </div>
-          <button onClick={openPaymentModal} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-slate-600">
-            Fechar Conta
+          <div className="flex gap-2">
+            <button onClick={openPaymentModal} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-slate-600">
+              Fechar Conta
+            </button>
+            <button
+              onClick={() => { setMergePulseira(''); setIsMergeModalOpen(true); }}
+              className="px-4 py-3 bg-slate-800 hover:bg-amber-500/20 text-amber-400 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-amber-500/50"
+              title="Importar outra comanda"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+          <button
+            onClick={() => { setTransferSearch(''); setTransferResults([]); setIsTransferModalOpen(true); }}
+            className="w-full py-2.5 bg-slate-800/60 hover:bg-violet-500/10 text-violet-400 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-violet-500/40 flex items-center justify-center gap-2"
+          >
+            <ChevronLeft size={14} className="rotate-180" />
+            Enviar para Comanda Fixa
           </button>
         </div>
 
@@ -849,26 +1188,167 @@ export default function Waiter() {
         </div>
       )}
 
+      {/* Wizard (Combo Modifiers) Modal */}
+      {wizardProduct && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[60] p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-300">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-800 bg-slate-900/50">
+              <div className="flex justify-between items-start mb-1">
+                <h3 className="text-xl font-extrabold text-white">{wizardProduct.name}</h3>
+                <button onClick={() => setWizardProduct(null)} className="text-slate-500 hover:text-white"><X size={24} /></button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
+                  Passo {wizardStep + 1} de {wizardProduct.modifier_groups.length}
+                </span>
+                <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-500" 
+                    style={{ width: `${((wizardStep + 1) / wizardProduct.modifier_groups.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Current Step Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div className="mb-4">
+                <h4 className="text-lg font-bold text-slate-200 uppercase tracking-tight">
+                  {wizardProduct.modifier_groups[wizardStep].name}
+                </h4>
+                <p className="text-xs text-slate-500 italic">Selecione uma opção para continuar:</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                {wizardProduct.modifier_groups[wizardStep].product_modifier_items.map((mItem: any) => {
+                  const p = products.find(prod => prod.id === mItem.linked_product_id);
+                  const hasStock = p && p.stock > 0;
+                  
+                  return (
+                    <button
+                      key={mItem.id}
+                      disabled={!hasStock}
+                      onClick={() => {
+                        const newSelections = [...wizardSelections, {
+                          modifier_item_id: mItem.id,
+                          product_id: p.id,
+                          is_fixed_price: mItem.is_fixed_price,
+                          original_price: p.price,
+                          cost_at_time: p.cost_price || 0
+                        }];
+                        setWizardSelections(newSelections);
+                        
+                        if (wizardStep < wizardProduct.modifier_groups.length - 1) {
+                          setWizardStep(wizardStep + 1);
+                        } else {
+                          // Submit wizard logic (inlined to avoid state stale)
+                          const totalOriginalPrice = newSelections.reduce((acc, sel) => acc + (sel.original_price || 0), 0);
+                          const ratio = totalOriginalPrice > 0 ? (wizardProduct.price / totalOriginalPrice) : 1;
+                          
+                          let finalComboPrice = 0;
+                          const finalModifiers = newSelections.map(sel => {
+                            const prod = products.find(pr => pr.id === sel.product_id);
+                            const adjustedPrice = sel.is_fixed_price ? sel.original_price : (sel.original_price * ratio);
+                            finalComboPrice += adjustedPrice;
+                            return {
+                              modifier_item_id: sel.modifier_item_id,
+                              product_id: sel.product_id,
+                              product_name: prod?.name || 'Item',
+                              price_at_time: adjustedPrice,
+                              cost_at_time: sel.cost_at_time || 0
+                            };
+                          });
+
+                          const comboInstance = {
+                            ...wizardProduct,
+                            id: `${wizardProduct.id}_${Date.now()}`,
+                            base_product_id: wizardProduct.id,
+                            __is_calculated: true,
+                            price_at_time: finalComboPrice,
+                            quantity: 1,
+                            modifiers: finalModifiers
+                          };
+
+                          setCart([...cart, comboInstance]);
+                          setWizardProduct(null);
+                        }
+                      }}
+                      className={`relative w-full p-4 rounded-2xl border transition-all flex items-center justify-between text-left group ${
+                        hasStock 
+                          ? 'bg-slate-800/40 border-slate-700 hover:border-blue-500 hover:bg-slate-800' 
+                          : 'bg-slate-900/40 border-slate-800 opacity-40 grayscale cursor-not-allowed'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${hasStock ? 'bg-blue-600/20 text-blue-400' : 'bg-slate-800 text-slate-600'}`}>
+                          {p?.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-200 group-hover:text-white transition-colors">{p?.name}</p>
+                          <div className="flex items-center gap-2">
+                            {mItem.is_fixed_price && (
+                              <span className="text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Preço Fixo (X)</span>
+                            )}
+                            <span className="text-xs text-slate-500">{hasStock ? `${p.stock} em estoque` : 'Esgotado'}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                         <span className="text-emerald-400 font-bold">R$ {p?.price.toFixed(2)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Footer / Summary */}
+            <div className="p-5 bg-slate-950 border-t border-slate-800 shrink-0">
+               <div className="flex justify-between items-center mb-1">
+                 <span className="text-slate-400 text-xs">Preço Base do Combo:</span>
+                 <span className="text-white font-bold">R$ {wizardProduct.price.toFixed(2)}</span>
+               </div>
+               <p className="text-[10px] text-slate-500 leading-tight">Itens sem marcação (X) recebem desconto proporcional para chegar ao valor base.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Cart Sheet */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 p-4 pb-6 shadow-2xl z-50 animate-in slide-in-from-bottom duration-300 max-h-[35vh] flex flex-col">
           <div className="flex justify-between items-center mb-2 shrink-0">
-            <h3 className="font-bold text-white flex items-center gap-2">
-              <ShoppingCart size={18} className="text-blue-400" />
+            <h3 className="font-bold text-white flex items-center gap-2 text-sm">
+              <ShoppingCart size={16} className="text-blue-400" />
               Carrinho ({cart.reduce((acc, i) => acc + i.quantity, 0)})
             </h3>
-            <span className="font-bold text-emerald-400 text-lg">R$ {total.toFixed(2)}</span>
+            <div className="text-right">
+              <span className="font-black text-emerald-400 text-xl tracking-tight">R$ {total.toFixed(2)}</span>
+            </div>
           </div>
 
           <div className="space-y-3 overflow-y-auto mb-3 flex-1 min-h-0 pr-1">
-            {cart.map(item => (
-              <div key={item.id} className="flex justify-between items-center text-sm">
-                <span className="text-slate-300 line-clamp-1 flex-1 mr-2">{item.name}</span>
-                <div className="flex items-center gap-3 bg-slate-950 rounded-lg p-1 shrink-0">
-                  <button onClick={() => removeFromCart(item.id)} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white">-</button>
-                  <span className="font-mono w-4 text-center">{item.quantity}</span>
-                  <button onClick={() => addToCart(item)} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white">+</button>
+            {cart.map((item, idx) => (
+              <div key={idx} className="flex flex-col gap-1">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-300 line-clamp-1 flex-1 mr-2">{item.name}</span>
+                  <div className="flex items-center gap-3 bg-slate-950 rounded-lg p-1 shrink-0">
+                    <button onClick={() => removeFromCart(item.id)} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white">-</button>
+                    <span className="font-mono w-4 text-center">{item.quantity}</span>
+                    <button onClick={() => addToCart(item)} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white">+</button>
+                  </div>
                 </div>
+                {item.modifiers && item.modifiers.length > 0 && (
+                  <div className="pl-2 border-l border-slate-800 space-y-0.5">
+                    {item.modifiers.map((m: any, mIdx: number) => (
+                      <p key={mIdx} className="text-[10px] text-slate-500 flex justify-between">
+                        <span>• {m.product_name || 'Opção selecionada'}</span>
+                        <span>R$ {m.price_at_time?.toFixed(2)}</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -884,6 +1364,171 @@ export default function Waiter() {
       )}
 
       {/* Payment Modal */}
+      {/* Merge Order Modal */}
+      {/* Transfer Order Modal */}
+      {isTransferModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-xl font-bold text-white">Enviar para Fixa</h3>
+              <button onClick={() => setIsTransferModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
+            </div>
+            <p className="text-sm text-slate-400 mb-4">
+              Todos os itens da comanda <span className="text-white font-bold">#{pulseira}</span> serão transferidos para a comanda fixa do cliente selecionado. Esta comanda ficará livre.
+            </p>
+
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Buscar por nome ou nº da pulseira..."
+                value={transferSearch}
+                onChange={async (e: React.ChangeEvent<HTMLInputElement>) => {
+                  const val = e.target.value;
+                  setTransferSearch(val);
+                  if (val.length < 2) { setTransferResults([]); return; }
+                  try {
+                    const [emps, custs] = await Promise.all([
+                      api.getEmployees(),
+                      api.searchCustomers(val),
+                    ]);
+                    const fixedEmps = emps
+                      .filter((emp: any) => emp.fixed_pulseira && emp.name.toLowerCase().includes(val.toLowerCase()))
+                      .map((emp: any) => ({ ...emp, _type: 'employee' }));
+                    const fixedCusts = custs
+                      .filter((c: any) => c.fixed_pulseira)
+                      .map((c: any) => ({ ...c, _type: 'customer' }));
+                    // Also try pulseira number search
+                    const allFixed = await api.getFixedCustomers();
+                    const byPulseira = allFixed
+                      .filter((c: any) => c.fixed_pulseira?.includes(val))
+                      .map((c: any) => ({ ...c, _type: 'customer' }));
+                    const combined = [...fixedEmps, ...fixedCusts, ...byPulseira];
+                    const unique = combined.filter((v, i, a) => a.findIndex(x => x.id === v.id && x._type === v._type) === i);
+                    setTransferResults(unique.slice(0, 8));
+                  } catch (e) { console.error(e); }
+                }}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none"
+                autoFocus
+              />
+
+              <div className="space-y-2 max-h-52 overflow-y-auto">
+                {transferResults.map((person: any) => (
+                  <button
+                    key={`${person._type}-${person.id}`}
+                    disabled={isTransferring}
+                    onClick={async () => {
+                      if (!currentOrder) return;
+                      if (!confirm(`Enviar comanda #${pulseira} para ${person.name} (pulseira fixa #${person.fixed_pulseira})?`)) return;
+                      setIsTransferring(true);
+                      try {
+                        const result = await api.transferOrder(currentOrder.id, person.fixed_pulseira);
+                        setIsTransferModalOpen(false);
+                        setView('home');
+                        setPulseira('');
+                        setCurrentOrder(null);
+                        loadOpenOrders();
+                        alert(`Comanda transferida para ${person.name} (#${result.destPulseira})!`);
+                      } catch (err: any) {
+                        alert(err.message || 'Erro ao transferir comanda.');
+                      } finally {
+                        setIsTransferring(false);
+                      }
+                    }}
+                    className="w-full flex items-center justify-between bg-slate-800/50 hover:bg-slate-800 border border-slate-700 hover:border-violet-500/50 rounded-xl p-3 transition-all group"
+                  >
+                    <div className="flex items-center gap-3 text-left">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black ${person._type === 'employee' ? 'bg-purple-500/20 text-purple-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                        {person._type === 'employee' ? 'FUNC' : 'CLI'}
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-200 group-hover:text-white">{person.name}</p>
+                        <p className="text-xs text-slate-500">Pulseira fixa #{person.fixed_pulseira}</p>
+                      </div>
+                    </div>
+                    <ChevronLeft size={16} className="text-violet-400 rotate-180" />
+                  </button>
+                ))}
+                {transferSearch.length >= 2 && transferResults.length === 0 && (
+                  <p className="text-center text-slate-500 text-sm py-4">Nenhum cliente/funcionário fixo encontrado.</p>
+                )}
+                {transferSearch.length < 2 && (
+                  <p className="text-center text-slate-600 text-xs py-3">Digite pelo menos 2 caracteres para buscar</p>
+                )}
+              </div>
+
+              {isTransferring && (
+                <p className="text-center text-violet-400 text-sm animate-pulse">Transferindo...</p>
+              )}
+
+              <button onClick={() => setIsTransferModalOpen(false)} className="w-full py-2 text-slate-400 hover:text-white text-sm">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isMergeModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-xl font-bold text-white">Importar Comanda</h3>
+              <button onClick={() => setIsMergeModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
+            </div>
+            <p className="text-sm text-slate-400 mb-5">
+              Digite o número da comanda que deseja importar para <span className="text-white font-bold">#{pulseira}</span>. Todos os itens serão transferidos e a comanda de origem será encerrada.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pulseira de Origem</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={mergePulseira}
+                  onChange={(e) => setMergePulseira(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  onBlur={() => { if (mergePulseira) setMergePulseira(mergePulseira.padStart(4, '0')); }}
+                  placeholder="0000"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-center text-2xl font-mono tracking-[0.3em] focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-white"
+                  autoFocus
+                />
+              </div>
+              <button
+                disabled={!mergePulseira || isMerging}
+                onClick={async () => {
+                  if (!currentOrder || !mergePulseira) return;
+                  const padded = mergePulseira.padStart(4, '0');
+                  if (padded === pulseira) {
+                    alert('Não é possível importar a mesma comanda.');
+                    return;
+                  }
+                  if (!confirm(`Importar comanda #${padded} para #${pulseira}? Os itens serão transferidos e a comanda #${padded} será encerrada.`)) return;
+                  setIsMerging(true);
+                  try {
+                    await api.mergeOrder(padded, currentOrder.id);
+                    const updated = await api.getOrder(pulseira);
+                    setCurrentOrder(updated);
+                    setIsMergeModalOpen(false);
+                    setMergePulseira('');
+                    alert(`Comanda #${padded} importada com sucesso!`);
+                  } catch (err: any) {
+                    alert(err.message || 'Erro ao importar comanda.');
+                  } finally {
+                    setIsMerging(false);
+                  }
+                }}
+                className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-all active:scale-95"
+              >
+                {isMerging ? 'Importando...' : 'Confirmar Importação'}
+              </button>
+              <button onClick={() => setIsMergeModalOpen(false)} className="w-full py-2 text-slate-400 hover:text-white text-sm">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isPaymentModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
@@ -923,10 +1568,13 @@ export default function Waiter() {
                 <div className="flex gap-2">
                   <input
                     type="text"
+                    inputMode="numeric"
+                    maxLength={4}
                     value={extraPulseira}
-                    onChange={(e) => setExtraPulseira(e.target.value)}
+                    onChange={(e) => setExtraPulseira(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onBlur={() => { if (extraPulseira) setExtraPulseira(extraPulseira.padStart(4, '0')); }}
                     placeholder="0000"
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono text-center"
                   />
                   <button onClick={addOrderToPayment} className="bg-blue-600 hover:bg-blue-500 text-white px-3 rounded-lg">
                     <Plus size={18} />
@@ -936,11 +1584,28 @@ export default function Waiter() {
 
               <div className="border-t border-slate-800 pt-4 space-y-3">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-400">Subtotal</span>
+                  <span className="text-slate-400">Total Consumido</span>
                   <span className="text-slate-200 font-medium">
                     R$ {ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0).toFixed(2)}
                   </span>
                 </div>
+
+                {(() => {
+                  const totalDiscount = ordersToPay.reduce((acc, order) => {
+                    const sub = order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0);
+                    const disc = Math.min(sub, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100);
+                    return acc + disc;
+                  }, 0);
+
+                  if (totalDiscount <= 0) return null;
+
+                  return (
+                    <div className="flex justify-between items-center text-sm text-blue-400 font-bold">
+                      <span>Descontos Aplicados</span>
+                      <span>- R$ {totalDiscount.toFixed(2)}</span>
+                    </div>
+                  );
+                })()}
 
                 <div className="flex justify-between items-center text-sm">
                   <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
@@ -973,34 +1638,129 @@ export default function Waiter() {
                 </div>
 
                 <div className="flex justify-between items-center pt-3 border-t border-slate-800">
-                  <span className="text-slate-400">Total Geral</span>
-                  <span className="text-2xl font-bold text-emerald-400">
-                    R$ {(
-                      ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0) +
-                      (includeServiceFee ? ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0) * 0.1 : 0) +
-                      coverFee
-                    ).toFixed(2)}
+                  <span className="text-slate-400 font-bold">Total a Pagar</span>
+                  <span className="text-2xl font-black text-emerald-400">
+                    R$ {(() => {
+                      const consumption = ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
+                      const totalDiscount = ordersToPay.reduce((acc, order) => {
+                        const sub = order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0);
+                        return acc + (Math.min(sub, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100));
+                      }, 0);
+                      const service = includeServiceFee ? (consumption - totalDiscount) * 0.1 : 0;
+                      return (consumption - totalDiscount + service + coverFee).toFixed(2);
+                    })()}
                   </span>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <button onClick={handlePrint} className="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-600">
-                  🖨️ Imprimir Comanda
-                </button>
-                <button onClick={() => handlePayment('cash')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
-                  💵 Dinheiro
-                </button>
-                <button onClick={() => handlePayment('card')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
-                  💳 Cartão
-                </button>
-                <button onClick={() => handlePayment('pix')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors">
-                  💠 PIX
-                </button>
-              </div>
+              {/* Split payment UI */}
+              {(() => {
+                const consumption = ordersToPay.reduce((acc: number, order: any) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
+                const totalDiscount = ordersToPay.reduce((acc: number, order: any) => {
+                  const sub = order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0);
+                  return acc + (Math.min(sub, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100));
+                }, 0);
+                const service = includeServiceFee ? (consumption - totalDiscount) * 0.1 : 0;
+                const finalTotal = consumption - totalDiscount + service + coverFee;
+                const totalPaid = splitEntries.reduce((s: number, e) => s + e.amount, 0);
+                const remaining = finalTotal - totalPaid;
+
+                const methodLabels: Record<string, string> = { cash: '💵 Dinheiro', debit: '💳 Débito', credit: '💳 Crédito', pix: '💠 PIX' };
+                const methodActive: Record<string, string> = {
+                  cash: 'bg-emerald-600 text-white border-emerald-500',
+                  debit: 'bg-blue-600 text-white border-blue-500',
+                  credit: 'bg-purple-600 text-white border-purple-500',
+                  pix: 'bg-cyan-600 text-white border-cyan-500',
+                };
+                const methodBadge: Record<string, string> = {
+                  cash: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+                  debit: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+                  credit: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+                  pix: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+                };
+
+                const addEntry = () => {
+                  const amt = parseFloat(splitInputAmount);
+                  const value = (!splitInputAmount || isNaN(amt)) ? remaining : amt;
+                  if (value <= 0) return;
+                  setSplitEntries(prev => [...prev, { id: Date.now().toString(), method: splitInputMethod, amount: parseFloat(value.toFixed(2)) }]);
+                  setSplitInputAmount('');
+                };
+
+                return (
+                  <div className="space-y-3">
+                    <button onClick={handlePrint} className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-600 text-sm">
+                      🖨️ Imprimir Comanda
+                    </button>
+
+                    {/* Method selector */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['cash', 'debit', 'credit', 'pix'] as const).map(m => (
+                        <button
+                          key={m}
+                          onClick={() => setSplitInputMethod(m)}
+                          className={`py-2.5 rounded-xl text-sm font-medium transition-all border ${splitInputMethod === m ? methodActive[m] : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
+                        >
+                          {methodLabels[m]}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Amount input + add button */}
+                    <div className="flex gap-2 items-center bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
+                      <span className="text-slate-500 text-sm font-medium shrink-0">R$</span>
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={splitInputAmount}
+                        onChange={e => setSplitInputAmount(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addEntry()}
+                        placeholder={remaining > 0 ? remaining.toFixed(2) : '0.00'}
+                        className="flex-1 bg-transparent text-white text-sm outline-none min-w-0"
+                      />
+                      <button
+                        onClick={addEntry}
+                        disabled={remaining <= 0}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        + Adicionar
+                      </button>
+                    </div>
+
+                    {/* Entries list */}
+                    {splitEntries.length > 0 && (
+                      <div className="space-y-1.5">
+                        {splitEntries.map(e => (
+                          <div key={e.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${methodBadge[e.method]}`}>
+                            <span className="flex-1 text-sm font-medium">{methodLabels[e.method]}</span>
+                            <span className="font-bold text-sm">R$ {e.amount.toFixed(2)}</span>
+                            <button onClick={() => setSplitEntries(prev => prev.filter(x => x.id !== e.id))} className="opacity-60 hover:opacity-100 transition-opacity ml-1">
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Residual indicator */}
+                    <div className={`flex justify-between items-center px-4 py-3 rounded-xl border font-bold transition-colors ${remaining <= 0.01 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : splitEntries.length > 0 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                      <span className="text-sm">{remaining <= 0.01 ? '✓ Valor coberto' : 'Falta pagar'}</span>
+                      <span className="text-lg">{remaining <= 0.01 ? 'Pago' : `R$ ${remaining.toFixed(2)}`}</span>
+                    </div>
+
+                    {/* Confirm button */}
+                    <button
+                      onClick={handleSplitPayment}
+                      disabled={splitEntries.length === 0 || remaining > 0.01}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-base"
+                    >
+                      Confirmar Pagamento
+                    </button>
+                  </div>
+                );
+              })()}
 
               <button
-                onClick={() => setIsPaymentModalOpen(false)}
+                onClick={() => { setIsPaymentModalOpen(false); setSplitEntries([]); setSplitInputAmount(''); }}
                 className="w-full py-2 text-slate-400 hover:text-white transition-colors"
               >
                 Cancelar
@@ -1061,13 +1821,118 @@ export default function Waiter() {
               )}
             </div>
 
-            <div className="pt-4 border-t border-slate-800 mt-4">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">Total</span>
+            <div className="pt-4 border-t border-slate-800 mt-4 space-y-2">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-400">Subtotal</span>
+                <span className="text-slate-200">R$ {subtotalConsumido.toFixed(2)}</span>
+              </div>
+              {applied_discount > 0 && (
+                <div className="flex justify-between items-center text-sm text-blue-400 font-medium">
+                  <span>Desconto ({discount_percentage}%)</span>
+                  <span>- R$ {applied_discount.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center pt-2 border-t border-slate-800/50">
+                <span className="text-slate-200 font-bold">Total Final</span>
                 <span className="text-xl font-bold text-emerald-400">
                   R$ {currentTotal.toFixed(2)}
                 </span>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fix Pulseira Modal */}
+      {isFixModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-white">📌 Fixar Pulseira #{pulseira}</h3>
+              <button onClick={() => setIsFixModalOpen(false)} className="text-slate-500 hover:text-white"><X size={24} /></button>
+            </div>
+
+            {currentOrder?.is_fixed ? (
+              <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl">
+                <p className="text-sm text-slate-300 mb-4">Esta comanda já está fixada para:</p>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-blue-900/20">
+                    {currentOrder.customer_name?.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="font-bold text-white text-lg leading-tight">{currentOrder.customer_name}</p>
+                    <p className="text-xs text-blue-400 uppercase tracking-widest font-bold">
+                      {currentOrder.fixed_type === 'employee' ? 'Funcionário' : 'Cliente Frequente'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleUnfixCurrent}
+                  disabled={isLoading}
+                  className="w-full py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-bold transition-all"
+                >
+                  {isLoading ? 'Aguarde...' : 'Remover Vínculo Fixo'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-400">Vincule esta pulseira permanentemente a um funcionário ou cliente frequente.</p>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Buscar por nome..."
+                    value={fixSearchTerm}
+                    onChange={(e) => handleSearchFix(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="max-h-[40vh] overflow-y-auto space-y-2 pr-2">
+                  {fixResults.employees.map(emp => (
+                    <button
+                      key={emp.id}
+                      onClick={() => handleFixPulseira('employee', emp.id)}
+                      className="w-full p-3 bg-slate-800/40 hover:bg-slate-800 border border-slate-700 rounded-2xl flex items-center justify-between group transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">EQUIPE</div>
+                        <span className="font-bold text-slate-200 group-hover:text-white">{emp.name}</span>
+                      </div>
+                      <Plus size={16} className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  ))}
+                  {fixResults.customers.map(cust => (
+                    <button
+                      key={cust.id}
+                      onClick={() => handleFixPulseira('customer', cust.id)}
+                      className="w-full p-3 bg-slate-800/40 hover:bg-slate-800 border border-slate-700 rounded-2xl flex items-center justify-between group transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">CLIENTE</div>
+                        <span className="font-bold text-slate-200 group-hover:text-white">{cust.name}</span>
+                      </div>
+                      <Plus size={16} className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  ))}
+                  {fixSearchTerm.length >= 2 && fixResults.employees.length === 0 && fixResults.customers.length === 0 && (
+                    <p className="text-center text-slate-500 py-4 text-sm italic">Nenhum resultado encontrado...</p>
+                  )}
+                  {fixSearchTerm.length < 2 && (
+                    <p className="text-center text-slate-600 py-4 text-xs">Digite pelo menos 2 letras para buscar</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-center">
+              <button 
+                onClick={() => setIsFixModalOpen(false)}
+                className="text-slate-400 hover:text-white text-sm font-medium"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

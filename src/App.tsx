@@ -112,7 +112,7 @@ export default function App() {
         For now, the roles are fully protecting the routes.
       */}
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<Home onLogout={handleLogout} />} />
         <Route
           path="/manager/*"
           element={
