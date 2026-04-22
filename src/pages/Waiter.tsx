@@ -872,29 +872,7 @@ export default function Waiter() {
               )}
 
               <form onSubmit={handleCreateOrder} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Documento (CPF/RG)</label>
-                  <input
-                    name="document"
-                    value={customerForm.document}
-                    onChange={(e) => handleCustomerSearch('document', e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white"
-                    placeholder="Digite apenas números"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Telefone (WhatsApp)</label>
-                  <input
-                    name="phone"
-                    type="tel"
-                    value={customerForm.phone}
-                    onChange={(e) => handleCustomerSearch('phone', e.target.value)}
-                    placeholder="(00) 00000-0000"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white"
-                  />
-                </div>
-
-                <div className="border-t border-slate-800 pt-4 space-y-4">
+                <div className="space-y-4">
                   <div className="relative">
                     <label className="block text-sm font-medium text-slate-400 mb-1">Nome Completo</label>
                     <input
@@ -930,17 +908,21 @@ export default function Waiter() {
                       </div>
                     )}
                   </div>
+
                   <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-1">Apelido</label>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Telefone (WhatsApp)</label>
                     <input
-                      name="nickname"
-                      value={customerForm.nickname}
-                      onChange={(e) => setCustomerForm(prev => ({ ...prev, nickname: e.target.value }))}
+                      name="phone"
+                      type="tel"
+                      value={customerForm.phone}
+                      onChange={(e) => handleCustomerSearch('phone', e.target.value)}
+                      placeholder="(00) 00000-0000"
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white"
                     />
                   </div>
+
                   <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-1">Aniversário</label>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Data de Nascimento (Aniversário)</label>
                     <input
                       name="birthday"
                       type="date"
@@ -949,23 +931,44 @@ export default function Waiter() {
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white"
                     />
                   </div>
-                </div>
 
-                <div className="pt-2">
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Número da Pulseira</label>
-                  <div className="flex gap-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Documento (CPF/RG)</label>
                     <input
-                      name="pulseira"
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={4}
-                      required
-                      placeholder="0000"
-                      value={pulseira}
-                      onChange={(e) => handlePulseiraChange(e.target.value)}
-                      onBlur={() => { if (pulseira) setPulseira(padPulseira(pulseira)); }}
-                      className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white font-mono tracking-widest text-center text-xl"
+                      name="document"
+                      value={customerForm.document}
+                      onChange={(e) => handleCustomerSearch('document', e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white"
+                      placeholder="Digite apenas números"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Apelido <span className="text-xs opacity-70">"como vai ser chamado na Pulseira"</span></label>
+                    <input
+                      name="nickname"
+                      value={customerForm.nickname}
+                      onChange={(e) => setCustomerForm(prev => ({ ...prev, nickname: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white"
+                    />
+                  </div>
+
+                  <div className="pt-2">
+                    <label className="block text-sm font-medium text-slate-400 mb-1">Número da Pulseira</label>
+                    <div className="flex gap-2">
+                      <input
+                        name="pulseira"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={4}
+                        required
+                        placeholder="0000"
+                        value={pulseira}
+                        onChange={(e) => handlePulseiraChange(e.target.value)}
+                        onBlur={() => { if (pulseira) setPulseira(padPulseira(pulseira)); }}
+                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white font-mono tracking-widest text-center text-xl"
+                      />
+                    </div>
                   </div>
                 </div>
 
