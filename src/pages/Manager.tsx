@@ -2586,6 +2586,34 @@ function Products() {
   const [stockVariations, setStockVariations] = useState<{ id: string, qty: number, size: number, totalPrice: number }[]>([]);
   const [purchaseUnit, setPurchaseUnit] = useState('');
   const [saleUnit, setSaleUnit] = useState('un');
+  const [editingPrice, setEditingPrice] = useState<{ id: number; field: 'price' | 'cost_price'; value: string } | null>(null);
+
+  const saveInlinePrice = async (product: any, field: 'price' | 'cost_price', rawValue: string) => {
+    setEditingPrice(null);
+    const value = parseFloat(rawValue) || 0;
+    if (value === (product[field] || 0)) return;
+    await api.saveProduct({ ...product, [field]: value });
+    const allProducts = await api.getProducts();
+    setProducts(allProducts);
+    if (field === 'cost_price') {
+      const compositions = allProducts.filter((p: any) =>
+        p.type === 'composition' &&
+        (p.ingredients || []).some((ing: any) => ing.ingredient_id === product.id)
+      );
+      if (compositions.length > 0) {
+        for (const comp of compositions) {
+          const newCost = (comp.ingredients || []).reduce((sum: number, ing: any) => {
+            const ingProd = allProducts.find((p: any) => p.id === ing.ingredient_id);
+            const unitCost = ing.ingredient_id === product.id ? value : (ingProd?.cost_price || 0);
+            const qty = ing.quantity || 0;
+            return sum + unitCost * qty;
+          }, 0);
+          await api.saveProduct({ ...comp, cost_price: parseFloat(newCost.toFixed(2)) });
+        }
+        api.getProducts().then(setProducts);
+      }
+    }
+  };
 
   const exportProductsToExcel = () => {
     // Collect all products including variations if possible
@@ -2691,10 +2719,10 @@ function Products() {
   };
   
   // Sorting State
-  const [sortField, setSortField] = useState<'name' | 'type' | 'category' | 'price' | 'stock'>('name');
+  const [sortField, setSortField] = useState<'name' | 'type' | 'category' | 'cost_price' | 'price' | 'margin' | 'stock'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  const handleSort = (field: 'name' | 'type' | 'category' | 'price' | 'stock') => {
+  const handleSort = (field: 'name' | 'type' | 'category' | 'cost_price' | 'price' | 'margin' | 'stock') => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
@@ -2989,21 +3017,27 @@ function Products() {
           <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
             <tr>
               <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('name')}>
-                <div className="flex items-center gap-1">Produto {sortField === 'name' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                <div className="flex items-center gap-1">PRODUTO {sortField === 'name' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
               </th>
               <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('type')}>
-                <div className="flex items-center gap-1">Tipo {sortField === 'type' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                <div className="flex items-center gap-1">TIPO {sortField === 'type' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
               </th>
               <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('category')}>
-                <div className="flex items-center gap-1">Categoria {sortField === 'category' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                <div className="flex items-center gap-1">CATEGORIA {sortField === 'category' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
               </th>
-              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('price')}>
-                <div className="flex items-center gap-1">Preço {sortField === 'price' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('cost_price')}>
+                <div className="flex items-center gap-1">CUSTO {sortField === 'cost_price' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
               </th>
-              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('stock')}>
-                <div className="flex items-center gap-1">Estoque {sortField === 'stock' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('price')}>
+                <div className="flex items-center gap-1">PREÇO {sortField === 'price' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
               </th>
-              <th className="px-6 py-4 text-right">Ações</th>
+              <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('margin')}>
+                <div className="flex items-center gap-1">LUCRO % {sortField === 'margin' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              </th>
+              <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('stock')}>
+                <div className="flex items-center gap-1">ESTOQUE {sortField === 'stock' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+              </th>
+              <th className="px-6 py-4 text-right">AÇÕES</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -3033,7 +3067,13 @@ function Products() {
               if (sortField === 'name') return (a.name || '').localeCompare(b.name || '') * dir;
               if (sortField === 'type') return (a.type || '').localeCompare(b.type || '') * dir;
               if (sortField === 'category') return (a.category_name || '').localeCompare(b.category_name || '') * dir;
+              if (sortField === 'cost_price') return ((a.cost_price || 0) - (b.cost_price || 0)) * dir;
               if (sortField === 'price') return ((a.price || 0) - (b.price || 0)) * dir;
+              if (sortField === 'margin') {
+                const ma = a.price > 0 && a.cost_price > 0 ? ((a.price - a.cost_price) / a.price) * 100 : -1;
+                const mb = b.price > 0 && b.cost_price > 0 ? ((b.price - b.cost_price) / b.price) * 100 : -1;
+                return (ma - mb) * dir;
+              }
               if (sortField === 'stock') return ((a.stock || 0) - (b.stock || 0)) * dir;
               return 0;
             }).map(product => (
@@ -3060,15 +3100,51 @@ function Products() {
                       {product.category_name || 'Sem categoria'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-emerald-400 font-medium">
-                    {product.type === 'variable' ? '-' : (
-                      <div className="flex flex-col">
-                        <span>R$ {product.price?.toFixed(2)}</span>
-                        {product.type === 'composition' && product.cost_price > 0 && (
-                          <span className="text-xs text-slate-500">Custo: R$ {product.cost_price?.toFixed(2)}</span>
-                        )}
-                      </div>
-                    )}
+                  {/* CUSTO */}
+                  <td className="px-4 py-4">
+                    {product.type === 'variable' ? <span className="text-slate-500">—</span> :
+                      editingPrice?.id === product.id && editingPrice.field === 'cost_price' ? (
+                        <input autoFocus type="number" min="0" step="0.01" value={editingPrice.value}
+                          onChange={e => setEditingPrice(p => p && { ...p, value: e.target.value })}
+                          onBlur={() => saveInlinePrice(product, 'cost_price', editingPrice.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(product, 'cost_price', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
+                          className="w-24 bg-slate-700 border border-amber-500 rounded px-2 py-0.5 text-amber-400 text-sm font-bold outline-none"
+                        />
+                      ) : (
+                        <button
+                          onClick={() => product.type !== 'composition' ? setEditingPrice({ id: product.id, field: 'cost_price', value: (product.cost_price || 0).toFixed(2) }) : undefined}
+                          className={`text-sm font-medium ${product.type === 'composition' ? 'text-slate-500 cursor-default' : 'text-amber-400 hover:underline'}`}
+                          title={product.type === 'composition' ? 'Calculado automaticamente' : 'Clique para editar'}
+                        >R$ {(product.cost_price || 0).toFixed(2)}</button>
+                      )
+                    }
+                  </td>
+                  {/* PREÇO */}
+                  <td className="px-4 py-4">
+                    {product.type === 'variable' ? <span className="text-slate-500">—</span> :
+                      editingPrice?.id === product.id && editingPrice.field === 'price' ? (
+                        <input autoFocus type="number" min="0" step="0.01" value={editingPrice.value}
+                          onChange={e => setEditingPrice(p => p && { ...p, value: e.target.value })}
+                          onBlur={() => saveInlinePrice(product, 'price', editingPrice.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(product, 'price', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
+                          className="w-24 bg-slate-700 border border-blue-500 rounded px-2 py-0.5 text-emerald-400 text-sm font-bold outline-none"
+                        />
+                      ) : (
+                        <button onClick={() => setEditingPrice({ id: product.id, field: 'price', value: (product.price || 0).toFixed(2) })}
+                          className="text-emerald-400 text-sm font-medium hover:underline">
+                          R$ {(product.price || 0).toFixed(2)}
+                        </button>
+                      )
+                    }
+                  </td>
+                  {/* LUCRO % */}
+                  <td className="px-4 py-4">
+                    {product.type === 'variable' ? <span className="text-slate-500">—</span> : (() => {
+                      const p = product.price || 0; const c = product.cost_price || 0;
+                      if (p <= 0 || c <= 0) return <span className="text-slate-500 text-sm">—</span>;
+                      const m = ((p - c) / p) * 100;
+                      return <span className={`px-2 py-1 rounded text-xs font-bold ${m >= 50 ? 'bg-emerald-500/20 text-emerald-400' : m >= 30 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>{m.toFixed(1)}%</span>;
+                    })()}
                   </td>
                   <td className="px-6 py-4">
                     {product.type === 'variable' ? (
@@ -3144,7 +3220,47 @@ function Products() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-500 text-xs">Variação</td>
-                    <td className="px-6 py-4 text-emerald-400 font-medium">R$ {variation.price?.toFixed(2)}</td>
+                    {/* CUSTO variação */}
+                    <td className="px-4 py-4">
+                      {editingPrice?.id === variation.id && editingPrice.field === 'cost_price' ? (
+                        <input autoFocus type="number" min="0" step="0.01" value={editingPrice.value}
+                          onChange={e => setEditingPrice(p => p && { ...p, value: e.target.value })}
+                          onBlur={() => saveInlinePrice(variation, 'cost_price', editingPrice.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(variation, 'cost_price', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
+                          className="w-24 bg-slate-700 border border-amber-500 rounded px-2 py-0.5 text-amber-400 text-sm font-bold outline-none"
+                        />
+                      ) : (
+                        <button onClick={() => setEditingPrice({ id: variation.id, field: 'cost_price', value: (variation.cost_price || 0).toFixed(2) })}
+                          className="text-amber-400 text-sm font-medium hover:underline">
+                          R$ {(variation.cost_price || 0).toFixed(2)}
+                        </button>
+                      )}
+                    </td>
+                    {/* PREÇO variação */}
+                    <td className="px-4 py-4">
+                      {editingPrice?.id === variation.id && editingPrice.field === 'price' ? (
+                        <input autoFocus type="number" min="0" step="0.01" value={editingPrice.value}
+                          onChange={e => setEditingPrice(p => p && { ...p, value: e.target.value })}
+                          onBlur={() => saveInlinePrice(variation, 'price', editingPrice.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(variation, 'price', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
+                          className="w-24 bg-slate-700 border border-blue-500 rounded px-2 py-0.5 text-emerald-400 text-sm font-bold outline-none"
+                        />
+                      ) : (
+                        <button onClick={() => setEditingPrice({ id: variation.id, field: 'price', value: (variation.price || 0).toFixed(2) })}
+                          className="text-emerald-400 text-sm font-medium hover:underline">
+                          R$ {(variation.price || 0).toFixed(2)}
+                        </button>
+                      )}
+                    </td>
+                    {/* LUCRO % variação */}
+                    <td className="px-4 py-4">
+                      {(() => {
+                        const p = variation.price || 0; const c = variation.cost_price || 0;
+                        if (p <= 0 || c <= 0) return <span className="text-slate-500 text-sm">—</span>;
+                        const m = ((p - c) / p) * 100;
+                        return <span className={`px-2 py-1 rounded text-xs font-bold ${m >= 50 ? 'bg-emerald-500/20 text-emerald-400' : m >= 30 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>{m.toFixed(1)}%</span>;
+                      })()}
+                    </td>
                     <td className="px-6 py-4">
                       {variation.type === 'composition' ? (
                         <span className="text-slate-500">Calc.</span>
@@ -3256,11 +3372,11 @@ function Products() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-1">Preço Venda (R$)</label>
-                    <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input name="price" type="number" step="any" defaultValue={editingProduct?.price} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-1">Preço Custo (R$)</label>
-                    <input name="cost_price" type="number" step="0.01" defaultValue={editingProduct?.cost_price} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input name="cost_price" type="number" step="any" defaultValue={editingProduct?.cost_price} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   {productType === 'simple' && (
                     <>
@@ -3704,20 +3820,42 @@ function Stock() {
   }, []);
 
   const updateStock = async (product: any, delta: number) => {
-    // Delta agora é literalmente a quantidade de garrafas, não precisa multiplicar.
-    const newStock = Math.max(0, product.stock + delta);
+    const newStock = Math.max(0, (product.stock || 0) + delta);
     await api.saveProduct({ ...product, stock: newStock });
     api.getProducts().then(setProducts);
   };
 
-  const filteredProducts = products.filter(p => {
-    if (!searchTerm) return !p.parent_id; // Default: show only parents
+  const topLevel = products.filter(p => !p.parent_id);
+  const getVariants = (parentId: number) => products.filter(p => p.parent_id === parentId);
+
+  const filtered = topLevel.filter(p => {
+    if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
-    const matchName = p.name?.toLowerCase().includes(term);
-    const isVariantMatching = p.parent_id && p.name?.toLowerCase().includes(term);
-    const isParentMatching = !p.parent_id && p.name?.toLowerCase().includes(term);
-    return matchName || isParentMatching || isVariantMatching;
+    if (p.name?.toLowerCase().includes(term)) return true;
+    if (p.type === 'variable') return getVariants(p.id).some(v => v.name?.toLowerCase().includes(term));
+    return false;
   });
+
+  const StockControl = ({ product }: { product: any }) => {
+    if (product.type === 'composition') {
+      return (
+        <span className="text-xs text-blue-400 bg-blue-500/10 px-2 py-1 rounded-lg">
+          Auto: {product.stock ?? 0}
+        </span>
+      );
+    }
+    const stockVal = product.stock || 0;
+    const label = product.category === 'Garrafa' && product.bottle_volume_ml
+      ? `${Math.floor(stockVal)} un | ${Math.round((stockVal % 1) * product.bottle_volume_ml)}ml`
+      : String(stockVal);
+    return (
+      <div className="flex items-center gap-2 bg-slate-800 rounded-lg p-1">
+        <button onClick={() => updateStock(product, -1)} className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors font-bold text-lg">−</button>
+        <span className={`font-mono font-bold px-2 text-sm min-w-[3rem] text-center ${stockVal <= 5 ? 'text-red-400' : 'text-slate-200'}`}>{label}</span>
+        <button onClick={() => updateStock(product, 1)} className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors font-bold text-lg">+</button>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -3729,37 +3867,44 @@ function Stock() {
             type="text"
             placeholder="Buscar produto..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={e => setSearchTerm(e.target.value)}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-slate-200"
           />
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredProducts.map(product => (
-          <div key={product.id} className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
-            <div>
-              <h3 className="font-bold text-slate-200">{product.name}</h3>
-              <span className="text-xs text-slate-500">{product.category}</span>
+
+      <div className="space-y-2">
+        {filtered.length === 0 && (
+          <div className="text-center py-12 text-slate-500">Nenhum produto encontrado.</div>
+        )}
+        {filtered.map(product => {
+          const variants = product.type === 'variable' ? getVariants(product.id) : [];
+          return (
+            <div key={product.id} className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+              {/* Parent row */}
+              <div className="flex justify-between items-center px-4 py-3 gap-3">
+                <div className="min-w-0">
+                  <span className="font-bold text-slate-200">{product.name}</span>
+                  {product.category && <span className="ml-2 text-xs text-slate-500">{product.category}</span>}
+                  {product.type === 'composition' && <span className="ml-2 text-xs text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">Composição</span>}
+                  {product.type === 'variable' && <span className="ml-2 text-xs text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">{variants.length} variações</span>}
+                </div>
+                {product.type !== 'variable' && <StockControl product={product} />}
+              </div>
+              {/* Variants */}
+              {variants.length > 0 && (
+                <div className="border-t border-slate-800 divide-y divide-slate-800/50">
+                  {variants.map(v => (
+                    <div key={v.id} className="flex justify-between items-center px-4 py-2.5 pl-10 bg-slate-900/30 gap-3">
+                      <span className="text-slate-300 text-sm font-medium">{v.name}</span>
+                      <StockControl product={v} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-3 bg-slate-800 rounded-lg p-1">
-              <button
-                onClick={() => updateStock(product, -1)}
-                className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
-              >-</button>
-              <span className={`font-mono font-bold w-auto px-2 text-center text-sm ${product.stock <= (product.category === 'Garrafa' ? 5 : 5) ? 'text-red-400' : 'text-slate-200'}`}>
-                {product.category === 'Garrafa' && product.bottle_volume_ml ? (
-                  `${Math.floor(product.stock || 0)} Fechadas | ${Math.round(((product.stock || 0) % 1) * product.bottle_volume_ml)}ml aberto`
-                ) : (
-                  product.stock
-                )}
-              </span>
-              <button
-                onClick={() => updateStock(product, 1)}
-                className="w-8 h-8 flex items-center justify-center hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
-              >+</button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
