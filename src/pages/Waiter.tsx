@@ -66,6 +66,8 @@ export default function Waiter() {
   });
   const [identifiedCustomer, setIdentifiedCustomer] = useState<any>(null);
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+  const [nameSuggestions, setNameSuggestions] = useState<any[]>([]);
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
 
   // Fix Pulseira State
   const [isFixModalOpen, setIsFixModalOpen] = useState(false);
@@ -107,6 +109,38 @@ export default function Waiter() {
   }, []);
 
 
+
+  const handleNameSearch = async (value: string) => {
+    setCustomerForm(prev => ({ ...prev, name: value }));
+    setIdentifiedCustomer(null);
+    if (value.length < 2) { setNameSuggestions([]); setShowNameSuggestions(false); return; }
+    try {
+      const results = await api.searchCustomers(value);
+      setNameSuggestions(results);
+      setShowNameSuggestions(results.length > 0);
+    } catch { setNameSuggestions([]); }
+  };
+
+  const selectCustomerSuggestion = async (customer: any) => {
+    setIdentifiedCustomer(customer);
+    setCustomerForm({
+      name: customer.name || '',
+      nickname: customer.nickname || '',
+      birthday: customer.birthday || '',
+      document: customer.document || '',
+      phone: customer.phone || '',
+    });
+    setShowNameSuggestions(false);
+    setNameSuggestions([]);
+    if (customer.fixed_pulseira) {
+      setPulseira(customer.fixed_pulseira);
+    } else {
+      try {
+        const next = await api.getNextPulseira();
+        setPulseira(next);
+      } catch { /* keep current pulseira */ }
+    }
+  };
 
   const handleEnterOrder = async (overridePulseira?: string) => {
     const rawPulseira = overridePulseira || pulseira;
@@ -861,15 +895,40 @@ export default function Waiter() {
                 </div>
 
                 <div className="border-t border-slate-800 pt-4 space-y-4">
-                  <div>
+                  <div className="relative">
                     <label className="block text-sm font-medium text-slate-400 mb-1">Nome Completo</label>
                     <input
                       name="name"
                       required
+                      autoComplete="off"
                       value={customerForm.name}
-                      onChange={(e) => setCustomerForm(prev => ({ ...prev, name: e.target.value }))}
+                      onChange={e => handleNameSearch(e.target.value)}
+                      onBlur={() => setTimeout(() => setShowNameSuggestions(false), 180)}
+                      onFocus={() => nameSuggestions.length > 0 && setShowNameSuggestions(true)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-white"
+                      placeholder="Digite o nome completo..."
                     />
+                    {showNameSuggestions && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                        {nameSuggestions.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onMouseDown={() => selectCustomerSuggestion(c)}
+                            className="w-full text-left px-4 py-3 hover:bg-slate-700 flex items-center justify-between gap-2 border-b border-slate-700/50 last:border-0"
+                          >
+                            <div>
+                              <p className="font-medium text-slate-200 text-sm">{c.name}</p>
+                              {c.phone && <p className="text-xs text-slate-500">{c.phone}</p>}
+                            </div>
+                            {c.fixed_pulseira
+                              ? <span className="text-xs font-mono font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded shrink-0">⚓ {c.fixed_pulseira}</span>
+                              : <span className="text-xs text-slate-500 shrink-0">→ próx. nº</span>
+                            }
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-1">Apelido</label>

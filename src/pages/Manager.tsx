@@ -3105,7 +3105,7 @@ function Products() {
                     {product.type === 'variable' ? <span className="text-slate-500">—</span> :
                       editingPrice?.id === product.id && editingPrice.field === 'cost_price' ? (
                         <input autoFocus type="number" min="0" step="0.01" value={editingPrice.value}
-                          onChange={e => setEditingPrice(p => p && { ...p, value: e.target.value })}
+                          onChange={e => { const v = e.target.value; const parts = v.split('.'); const clamped = parts[1]?.length > 2 ? parseFloat(v).toFixed(2) : v; setEditingPrice(p => p && { ...p, value: clamped }); }}
                           onBlur={() => saveInlinePrice(product, 'cost_price', editingPrice.value)}
                           onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(product, 'cost_price', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
                           className="w-24 bg-slate-700 border border-amber-500 rounded px-2 py-0.5 text-amber-400 text-sm font-bold outline-none"
@@ -3124,7 +3124,7 @@ function Products() {
                     {product.type === 'variable' ? <span className="text-slate-500">—</span> :
                       editingPrice?.id === product.id && editingPrice.field === 'price' ? (
                         <input autoFocus type="number" min="0" step="0.01" value={editingPrice.value}
-                          onChange={e => setEditingPrice(p => p && { ...p, value: e.target.value })}
+                          onChange={e => { const v = e.target.value; const parts = v.split('.'); const clamped = parts[1]?.length > 2 ? parseFloat(v).toFixed(2) : v; setEditingPrice(p => p && { ...p, value: clamped }); }}
                           onBlur={() => saveInlinePrice(product, 'price', editingPrice.value)}
                           onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(product, 'price', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
                           className="w-24 bg-slate-700 border border-blue-500 rounded px-2 py-0.5 text-emerald-400 text-sm font-bold outline-none"
@@ -3224,7 +3224,7 @@ function Products() {
                     <td className="px-4 py-4">
                       {editingPrice?.id === variation.id && editingPrice.field === 'cost_price' ? (
                         <input autoFocus type="number" min="0" step="0.01" value={editingPrice.value}
-                          onChange={e => setEditingPrice(p => p && { ...p, value: e.target.value })}
+                          onChange={e => { const v = e.target.value; const parts = v.split('.'); const clamped = parts[1]?.length > 2 ? parseFloat(v).toFixed(2) : v; setEditingPrice(p => p && { ...p, value: clamped }); }}
                           onBlur={() => saveInlinePrice(variation, 'cost_price', editingPrice.value)}
                           onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(variation, 'cost_price', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
                           className="w-24 bg-slate-700 border border-amber-500 rounded px-2 py-0.5 text-amber-400 text-sm font-bold outline-none"
@@ -3240,7 +3240,7 @@ function Products() {
                     <td className="px-4 py-4">
                       {editingPrice?.id === variation.id && editingPrice.field === 'price' ? (
                         <input autoFocus type="number" min="0" step="0.01" value={editingPrice.value}
-                          onChange={e => setEditingPrice(p => p && { ...p, value: e.target.value })}
+                          onChange={e => { const v = e.target.value; const parts = v.split('.'); const clamped = parts[1]?.length > 2 ? parseFloat(v).toFixed(2) : v; setEditingPrice(p => p && { ...p, value: clamped }); }}
                           onBlur={() => saveInlinePrice(variation, 'price', editingPrice.value)}
                           onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(variation, 'price', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
                           className="w-24 bg-slate-700 border border-blue-500 rounded px-2 py-0.5 text-emerald-400 text-sm font-bold outline-none"
@@ -3372,11 +3372,11 @@ function Products() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-1">Preço Venda (R$)</label>
-                    <input name="price" type="number" step="any" defaultValue={editingProduct?.price} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required onInput={e => { const el = e.target as HTMLInputElement; const p = el.value.split('.'); if (p[1]?.length > 2) el.value = parseFloat(el.value).toFixed(2); }} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-1">Preço Custo (R$)</label>
-                    <input name="cost_price" type="number" step="any" defaultValue={editingProduct?.cost_price} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input name="cost_price" type="number" step="0.01" defaultValue={editingProduct?.cost_price} onInput={e => { const el = e.target as HTMLInputElement; const p = el.value.split('.'); if (p[1]?.length > 2) el.value = parseFloat(el.value).toFixed(2); }} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   {productType === 'simple' && (
                     <>

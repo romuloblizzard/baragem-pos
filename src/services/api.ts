@@ -375,6 +375,19 @@ export const api = {
   },
 
   // Orders
+  getNextPulseira: async (): Promise<string> => {
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('pulseira')
+      .eq('status', 'open');
+    const used = new Set((orders || []).map((o: any) => o.pulseira));
+    for (let i = 1; i <= 9974; i++) {
+      const p = String(i).padStart(4, '0');
+      if (!used.has(p)) return p;
+    }
+    return '0001';
+  },
+
   getOpenOrdersSummary: async () => {
     const { data: orders, error } = await supabase
       .from('orders')
