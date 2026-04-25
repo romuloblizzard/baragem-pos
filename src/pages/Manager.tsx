@@ -78,6 +78,7 @@ export default function Manager() {
             { id: 'stock', label: 'Estoque', icon: Package },
             { id: 'purchases', label: 'Compras', icon: ShoppingCart },
             { id: 'cashier', label: 'Caixa', icon: DollarSign },
+            { id: 'menu', label: 'Cardápio', icon: List },
             { id: 'settings', label: 'Configurações', icon: SettingsIcon },
           ].map((tab) => (
             <button
@@ -104,6 +105,22 @@ export default function Manager() {
         {activeTab === 'stock' && <Stock />}
         {activeTab === 'purchases' && <Purchases />}
         {activeTab === 'cashier' && <Cashier stats={stats} />}
+        {activeTab === 'menu' && (
+          <div className="flex flex-col h-[60vh] items-center justify-center gap-8">
+            <h2 className="text-4xl font-bold text-slate-100 mb-4">Cardápio Digital</h2>
+            <div className="flex gap-6">
+              <a href="/menu" target="_blank" rel="noreferrer" className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-6 rounded-2xl flex flex-col items-center gap-3 transition-transform hover:scale-105 shadow-xl shadow-blue-900/20">
+                <Printer size={40} />
+                <span className="font-bold text-lg">Visualizar / Imprimir A4</span>
+              </a>
+              <a href="/menu-config" target="_blank" rel="noreferrer" className="bg-slate-700 hover:bg-slate-600 border-2 border-slate-600 hover:border-slate-500 text-white px-8 py-6 rounded-2xl flex flex-col items-center gap-3 transition-transform hover:scale-105 shadow-xl shadow-black/20">
+                <SettingsIcon size={40} />
+                <span className="font-bold text-lg">Configurar Cardápio</span>
+              </a>
+            </div>
+            <p className="text-slate-400 mt-4 max-w-md text-center">Configure quais produtos aparecem em cada página, a ordem das categorias e remova insumos do cardápio final.</p>
+          </div>
+        )}
         {activeTab === 'settings' && <Settings />}
       </main>
     </div>

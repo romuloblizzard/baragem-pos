@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Beer, ClipboardList, LogOut } from 'lucide-react';
+import { Beer, ClipboardList, LogOut, Menu as MenuIcon } from 'lucide-react';
 
 interface HomeProps {
   onLogout: () => void;

@@ -4,6 +4,8 @@ import Manager from './pages/Manager';
 import Waiter from './pages/Waiter';
 import Home from './pages/Home';
 import Login from './pages/Login';
+import Menu from './pages/Menu';
+import MenuConfig from './pages/MenuConfig';
 import { api } from './services/api';
 
 export default function App() {
@@ -122,6 +124,8 @@ export default function App() {
           }
         />
         <Route path="/waiter/*" element={<Waiter />} />
+        <Route path="/menu" element={<Menu />} />
+        <Route path="/menu-config" element={<ProtectedAdminRoute><MenuConfig /></ProtectedAdminRoute>} />
       </Routes>
     </BrowserRouter>
   );
