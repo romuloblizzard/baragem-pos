@@ -2807,6 +2807,18 @@ function Products() {
       type: productType,
     };
 
+    // VALIDATION: Category is mandatory
+    if (!data.category_id || isNaN(data.category_id)) {
+      alert('⚠️ CATEGORIA OBRIGATÓRIA\n\nTodo produto deve ser classificado em uma categoria antes de ser salvo.\n\nSelecione uma categoria e tente novamente.');
+      return;
+    }
+
+    // VALIDATION: Name is mandatory
+    if (!data.name || (data.name as string).trim() === '') {
+      alert('⚠️ NOME OBRIGATÓRIO\n\nO produto precisa ter um nome.');
+      return;
+    }
+
     // Handle parent_id from form (allows moving any product to a variable)
     const formParentId = formData.get('parent_id');
     if (formParentId && formParentId !== '') {
