@@ -51,7 +51,14 @@ export default function Menu() {
           api.getProducts(),
           api.getSettings()
         ]);
-        setProducts(productsData);
+        
+        // Strictly filter only visible products (No ingredients, no insumos)
+        const visibleProducts = productsData.filter((p: any) => {
+          const cat = (p.category_name || '').toLowerCase();
+          return p.type !== 'ingredient' && !cat.includes('insumo') && !cat.includes('matéria');
+        });
+        
+        setProducts(visibleProducts);
         if (settingsData.digital_menu_config) {
           setConfig(JSON.parse(settingsData.digital_menu_config));
         } else {

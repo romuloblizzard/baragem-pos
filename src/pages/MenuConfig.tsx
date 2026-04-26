@@ -76,10 +76,22 @@ export default function MenuConfigManager() {
         if (settings.digital_menu_config) {
           try {
              const parsed = JSON.parse(settings.digital_menu_config);
-             // Clean any products that no longer exist in the active catalog
+             // Clean any products that no longer exist or are now insumos
              const activeIds = new Set(catalog.map(p => p.id));
+             
+             // Count before
+             const countBefore = parsed.pages.reduce((s: number, pg: any) => s + pg.groups.reduce((s2: number, g: any) => s2 + g.products.length, 0), 0);
              const cleaned = cleanConfig(parsed, activeIds);
+             const countAfter = cleaned.pages.reduce((s: number, pg: any) => s + pg.groups.reduce((s2: number, g: any) => s2 + g.products.length, 0), 0);
+             
              setConfig(cleaned);
+
+             // If items were removed during load (because they were deleted or changed to insumo)
+             // auto-save to keep the database faithful
+             if (countBefore > countAfter) {
+                console.log(`Auto-cleaning ${countBefore - countAfter} items from menu config...`);
+                api.saveSettings({ digital_menu_config: JSON.stringify(cleaned) }).catch(console.error);
+             }
           } catch(e) {
              console.error("Invalid config JSON");
           }
