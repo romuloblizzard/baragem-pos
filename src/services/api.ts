@@ -30,6 +30,8 @@ export const api = {
     }
   },
   deleteCategory: async (id: number) => {
+    // First, clear category from any products using it (avoid orphaned references)
+    await supabase.from('products').update({ category_id: null }).eq('category_id', id);
     const { error } = await supabase.from('categories').delete().eq('id', id);
     if (error) throw error;
     return { success: true };
@@ -298,8 +300,39 @@ export const api = {
     return { id: productId };
   },
   deleteProduct: async (id: number) => {
+    // 1. Mark product as inactive
     const { error } = await supabase.from('products').update({ active: false }).eq('id', id);
     if (error) throw error;
+
+    // 2. Auto-clean from digital menu config
+    try {
+      const { data: settingsData } = await supabase.from('settings').select('*').eq('key', 'digital_menu_config').maybeSingle();
+      if (settingsData?.value) {
+        const config = JSON.parse(settingsData.value);
+        let changed = false;
+
+        config.pages = config.pages.map((page: any) => {
+          const newGroups = page.groups.map((group: any) => {
+            const before = group.products.length;
+            group.products = group.products.filter((p: any) => p.id !== id);
+            if (group.products.length !== before) changed = true;
+            return group;
+          });
+          return { ...page, groups: newGroups };
+        });
+
+        if (changed) {
+          await supabase.from('settings').upsert(
+            [{ key: 'digital_menu_config', value: JSON.stringify(config) }],
+            { onConflict: 'key' }
+          );
+        }
+      }
+    } catch (menuErr) {
+      // Don't block the deletion if menu cleanup fails
+      console.warn('Could not clean product from menu config:', menuErr);
+    }
+
     return { success: true };
   },
 

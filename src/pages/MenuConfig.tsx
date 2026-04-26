@@ -76,7 +76,10 @@ export default function MenuConfigManager() {
         if (settings.digital_menu_config) {
           try {
              const parsed = JSON.parse(settings.digital_menu_config);
-             setConfig(parsed);
+             // Clean any products that no longer exist in the active catalog
+             const activeIds = new Set(catalog.map(p => p.id));
+             const cleaned = cleanConfig(parsed, activeIds);
+             setConfig(cleaned);
           } catch(e) {
              console.error("Invalid config JSON");
           }
@@ -105,11 +108,41 @@ export default function MenuConfigManager() {
     init();
   }, []);
 
+  // Removes products not in the active catalog from the config
+  const cleanConfig = (cfg: MenuConfig, activeIds: Set<number>): MenuConfig => {
+    return {
+      ...cfg,
+      pages: cfg.pages.map(page => ({
+        ...page,
+        groups: page.groups.map(group => ({
+          ...group,
+          products: group.products.filter(p => activeIds.has(p.id))
+        }))
+      }))
+    };
+  };
+
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.saveSettings({ digital_menu_config: JSON.stringify(config) });
-      alert('Configuração salva com sucesso!');
+      // Before saving, clean any orphaned products that no longer exist
+      const activeIds = new Set(allProducts.map(p => p.id));
+      const cleaned = cleanConfig(config, activeIds);
+
+      // Count how many were removed
+      const countBefore = config.pages.reduce((s, pg) => s + pg.groups.reduce((s2, g) => s2 + g.products.length, 0), 0);
+      const countAfter = cleaned.pages.reduce((s, pg) => s + pg.groups.reduce((s2, g) => s2 + g.products.length, 0), 0);
+      const removed = countBefore - countAfter;
+
+      setConfig(cleaned);
+      await api.saveSettings({ digital_menu_config: JSON.stringify(cleaned) });
+
+      if (removed > 0) {
+        alert(`Configuração salva! ${removed} produto(s) removido(s) automaticamente por não existirem mais no catálogo ativo.`);
+      } else {
+        alert('Configuração salva com sucesso!');
+      }
     } catch (e) {
       alert('Erro ao salvar configuração.');
     } finally {
