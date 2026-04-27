@@ -281,6 +281,7 @@ export default function Menu() {
             margin: 0 !important; 
             padding: 0 !important; 
             height: 297mm !important;
+            width: 210mm !important;
             overflow: hidden !important;
             -webkit-print-color-adjust: exact !important; 
             print-color-adjust: exact !important;
@@ -289,7 +290,8 @@ export default function Menu() {
           .print\\:hidden { display: none !important; }
           
           #printable-menu { 
-             position: absolute !important;
+             position: relative !important;
+             display: block !important;
              top: 0 !important;
              left: 0 !important;
              width: 210mm !important;
@@ -297,26 +299,56 @@ export default function Menu() {
              margin: 0 !important;
              padding: 0 !important;
              overflow: hidden !important;
-             border: none !important; /* Borders often cause 2-page issues */
-             outline: none !important;
+             border: none !important; 
              box-shadow: none !important;
-             background-image: none !important; /* Texture can cover text */
-             background-color: #fdf5e6 !important; /* Solid light color for contrast */
+             background-color: #d8c3a5 !important;
+             background-image: url('https://www.transparenttextures.com/patterns/wood-pattern.png') !important;
           }
 
-          /* Force text visibility */
-          h1, h2, h3, span, p, div { 
-             color: black !important; 
+          /* Fix watermark size and position in print */
+          #printable-menu > div:first-child {
+             position: absolute !important;
+             width: 210mm !important;
+             height: 297mm !important;
+             top: 0 !important;
+             left: 0 !important;
+             display: flex !important;
+             align-items: center !important;
+             justify-content: center !important;
+             z-index: 0 !important;
+          }
+
+          #printable-menu img {
+             max-width: 180mm !important;
+             max-height: 250mm !important;
+             object-fit: contain !important;
+          }
+
+          /* Force Corner SVGs to stay in corners */
+          #printable-menu .absolute.top-0.left-0 { top: 0 !important; left: 0 !important; position: absolute !important; z-index: 20 !important; display: block !important; }
+          #printable-menu .absolute.top-0.right-0 { top: 0 !important; right: 0 !important; position: absolute !important; z-index: 20 !important; display: block !important; }
+          #printable-menu .absolute.bottom-0.left-0 { bottom: 0 !important; left: 0 !important; position: absolute !important; z-index: 20 !important; display: block !important; }
+
+          /* Force text visibility and layering */
+          .px-16.py-16 {
+             position: relative !important;
+             z-index: 10 !important;
+             display: flex !important;
+             flex-direction: column !important;
+             height: 297mm !important;
+          }
+
+          h1, h2, h3, span, p { 
+             color: #1c120a !important; 
              opacity: 1 !important;
              visibility: visible !important;
-             z-index: 9999 !important;
+             z-index: 15 !important;
              position: relative !important;
              -webkit-filter: none !important;
              filter: none !important;
-             text-shadow: none !important;
           }
 
-          .print\\:opacity-\\[0\\.12\\] { opacity: 0.12 !important; z-index: 0 !important; }
+          .print\\:opacity-\\[0\\.12\\] { opacity: 0.12 !important; }
         }
 
         .force-bold h1, 
@@ -324,7 +356,7 @@ export default function Menu() {
         .force-bold span, 
         .force-bold p { 
            font-weight: 900 !important;
-           -webkit-text-stroke: 0.5px #000;
+           -webkit-text-stroke: 0.5px #1c120a;
         }
       `}</style>
     </div>
