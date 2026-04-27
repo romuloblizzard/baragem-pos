@@ -277,23 +277,46 @@ export default function Menu() {
 
         @page { size: A4; margin: 0; }
         @media print {
-          body, html { background: #fff !important; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          html, body { 
+            margin: 0 !important; 
+            padding: 0 !important; 
+            height: 297mm !important;
+            overflow: hidden !important;
+            -webkit-print-color-adjust: exact !important; 
+            print-color-adjust: exact !important;
+          }
+          
           .print\\:hidden { display: none !important; }
-          .print\\:opacity-\\[0\\.12\\] { opacity: 0.12 !important; }
+          
           #printable-menu { 
-             overflow: visible !important; 
-             height: auto !important;
-             min-height: 100vh !important;
-             print-color-adjust: exact !important;
-             -webkit-print-color-adjust: exact !important;
+             position: absolute !important;
+             top: 0 !important;
+             left: 0 !important;
+             width: 210mm !important;
+             height: 297mm !important;
+             margin: 0 !important;
+             padding: 0 !important;
+             overflow: hidden !important;
+             border: none !important; /* Borders often cause 2-page issues */
+             outline: none !important;
+             box-shadow: none !important;
+             background-image: none !important; /* Texture can cover text */
+             background-color: #fdf5e6 !important; /* Solid light color for contrast */
           }
-          * { 
-             -webkit-print-color-adjust: exact !important; 
-             print-color-adjust: exact !important; 
-             z-index: auto !important; 
+
+          /* Force text visibility */
+          h1, h2, h3, span, p, div { 
+             color: black !important; 
+             opacity: 1 !important;
+             visibility: visible !important;
+             z-index: 9999 !important;
+             position: relative !important;
+             -webkit-filter: none !important;
+             filter: none !important;
+             text-shadow: none !important;
           }
-          /* Ensure text is always visible and on top in print */
-          h1, h2, h3, span, p, div { position: relative; z-index: 10; }
+
+          .print\\:opacity-\\[0\\.12\\] { opacity: 0.12 !important; z-index: 0 !important; }
         }
 
         .force-bold h1, 
@@ -301,7 +324,7 @@ export default function Menu() {
         .force-bold span, 
         .force-bold p { 
            font-weight: 900 !important;
-           -webkit-text-stroke: 0.5px #251a11;
+           -webkit-text-stroke: 0.5px #000;
         }
       `}</style>
     </div>
