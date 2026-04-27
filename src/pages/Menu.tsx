@@ -105,12 +105,7 @@ export default function Menu() {
 
   return (
     <div 
-        className="min-h-screen flex flex-col items-center py-6 px-4 print:p-0 select-none bg-rust text-[#2c221a]"
-        style={{ 
-          fontFamily: currentPage.fontFamily || "'Oswald', sans-serif",
-          fontSize: `${currentPage.fontSizeMultiplier ?? 100}%`,
-          WebkitTextStroke: currentPage.fontWeightBold ? '0.6px currentColor' : '0px'
-        }}
+        className="min-h-screen flex flex-col items-center py-6 px-4 print:p-0 select-none bg-rust"
     >
       
       {/* FLOATING CONTROLS */}
@@ -125,7 +120,16 @@ export default function Menu() {
       </div>
 
       {/* PAPER CONTAINER (A4 Proportion) */}
-      <div className="relative w-[210mm] h-[297mm] bg-parchment print:w-[210mm] print:h-[297mm] print:m-0 flex flex-col overflow-hidden shadow-[0_0_80px_rgba(0,0,0,0.9)] border-[16px] border-[#36261a] border-double box-border">
+      <div 
+        id="printable-menu"
+        className={`relative w-[210mm] h-[297mm] bg-parchment print:w-[210mm] print:h-[297mm] print:m-0 flex flex-col overflow-hidden shadow-[0_0_80px_rgba(0,0,0,0.9)] border-[16px] border-[#36261a] border-double box-border ${config.forceBold ? 'force-bold' : ''}`}
+        style={{ 
+          fontFamily: currentPage.fontFamily || 'Inter, sans-serif',
+          fontSize: `${config.globalFontSize || 100}%`,
+          "--watermark-opacity": (config.watermarkOpacity || 15) / 100,
+          "--watermark-saturate": (config.watermarkSaturation || 100) / 100
+        } as React.CSSProperties}
+      >
         
         {/* MARCA D'ÁGUA DINÂMICA (WATERMARK) */}
         {currentPage.watermark && (
@@ -273,10 +277,31 @@ export default function Menu() {
 
         @page { size: A4; margin: 0; }
         @media print {
-          body, html { background: #fff !important; margin: 0; padding: 0; }
+          body, html { background: #fff !important; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .print\\:hidden { display: none !important; }
           .print\\:opacity-\\[0\\.12\\] { opacity: 0.12 !important; }
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          #printable-menu { 
+             overflow: visible !important; 
+             height: auto !important;
+             min-height: 100vh !important;
+             print-color-adjust: exact !important;
+             -webkit-print-color-adjust: exact !important;
+          }
+          * { 
+             -webkit-print-color-adjust: exact !important; 
+             print-color-adjust: exact !important; 
+             z-index: auto !important; 
+          }
+          /* Ensure text is always visible and on top in print */
+          h1, h2, h3, span, p, div { position: relative; z-index: 10; }
+        }
+
+        .force-bold h1, 
+        .force-bold h2, 
+        .force-bold span, 
+        .force-bold p { 
+           font-weight: 900 !important;
+           -webkit-text-stroke: 0.5px #251a11;
         }
       `}</style>
     </div>
