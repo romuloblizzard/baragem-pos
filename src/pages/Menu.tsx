@@ -338,8 +338,33 @@ export default function Menu() {
              height: 297mm !important;
           }
 
-          h1, h2, h3, span, p { 
+          h1, h2 { color: #1c120a !important; }
+          
+          /* Special handling for product names to avoid hiding highlighted items */
+          .px-16 span:not([class*="text-[#dfccb3]"]) { 
              color: #1c120a !important; 
+          }
+
+          /* Ensure the dotted spacer is visible */
+          .border-dotted {
+             border-color: #1c120a !important;
+             opacity: 1 !important;
+             border-bottom-width: 2px !important;
+          }
+
+          /* Force Price Tags to be visible */
+          .bg-\[\#1c130c\] {
+             background-color: #1c130c !important;
+             -webkit-print-color-adjust: exact !important;
+          }
+          .text-\[\#dfccb3\] {
+             color: #fdf5e6 !important; /* Force light cream color for price on dark background */
+             opacity: 1 !important;
+             -webkit-filter: none !important;
+             filter: none !important;
+          }
+
+          h1, h2, h3, span, p { 
              opacity: 1 !important;
              visibility: visible !important;
              z-index: 15 !important;
