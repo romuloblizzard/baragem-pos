@@ -338,9 +338,19 @@ export default function Menu() {
              height: 297mm !important;
           }
 
-          h1, h2 { color: #1c120a !important; }
+          h1 { color: #1c120a !important; }
           
-          /* Special handling for product names to avoid hiding highlighted items */
+          /* Special handling for category titles (h2) in dark boxes */
+          h2 { 
+             color: #fdf5e6 !important; /* Force light cream for headers */
+          }
+          
+          .bg-\[\#24170f\] {
+             background-color: #24170f !important;
+             -webkit-print-color-adjust: exact !important;
+          }
+
+          /* Special handling for product names */
           .px-16 span:not([class*="text-[#dfccb3]"]) { 
              color: #1c120a !important; 
           }
