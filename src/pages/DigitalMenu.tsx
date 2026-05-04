@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Product {
   id: number;
@@ -16,7 +17,7 @@ export default function DigitalMenu() {
   const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<string>('');
-  const [flatGroups, setFlatGroups] = useState<any[]>([]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
   
   const categoryNavRef = useRef<HTMLDivElement>(null);
 
@@ -33,16 +34,6 @@ export default function DigitalMenu() {
         if (settingsData.digital_menu_config) {
           const parsedConfig = JSON.parse(settingsData.digital_menu_config);
           setConfig(parsedConfig);
-          
-          const groups: any[] = [];
-          parsedConfig.pages?.forEach((page: any) => {
-            page.groups?.forEach((group: any) => {
-              groups.push(group);
-            });
-          });
-          
-          setFlatGroups(groups);
-          if (groups.length > 0) setActiveCategory(groups[0].id);
         }
         
       } catch (err) {
@@ -54,9 +45,20 @@ export default function DigitalMenu() {
     loadData();
   }, []);
 
+  const totalPages = config?.pages?.length || 1;
+  const currentPage = config?.pages?.[currentPageIndex] || { title: '', watermark: '', groups: [] };
+  const currentGroups = currentPage.groups || [];
+
+  // Reset active category when page changes
+  useEffect(() => {
+    if (currentGroups.length > 0) {
+      setActiveCategory(currentGroups[0].id);
+    }
+  }, [currentPageIndex]);
+
   // ScrollSpy Implementation
   useEffect(() => {
-    if (loading || flatGroups.length === 0) return;
+    if (loading || currentGroups.length === 0) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -87,7 +89,7 @@ export default function DigitalMenu() {
     return () => {
       sections.forEach((section) => observer.unobserve(section));
     };
-  }, [loading, flatGroups]);
+  }, [loading, currentGroups, currentPageIndex]);
 
   const scrollToGroup = (groupId: string) => {
     setActiveCategory(groupId);
@@ -98,11 +100,10 @@ export default function DigitalMenu() {
     }
   };
 
-  const firstPage = config?.pages?.[0] || {};
-  const watermark = firstPage.watermark || '';
-  const fontFamily = firstPage.fontFamily || 'Inter, sans-serif';
-  const watermarkOpacity = (firstPage.watermarkOpacity ?? 15) / 100;
-  const watermarkSaturation = (firstPage.watermarkSaturation ?? 100) / 100;
+  const watermark = currentPage.watermark || '';
+  const fontFamily = currentPage.fontFamily || 'Inter, sans-serif';
+  const watermarkOpacity = (currentPage.watermarkOpacity ?? 15) / 100;
+  const watermarkSaturation = (currentPage.watermarkSaturation ?? 100) / 100;
 
   if (loading) {
     return (
@@ -138,37 +139,41 @@ export default function DigitalMenu() {
       <div className="fixed inset-0 z-0 pointer-events-none shadow-[inset_0_0_100px_rgba(0,0,0,0.6)]" />
 
       {/* Sticky Header */}
-      <header className="sticky top-0 z-50 bg-[#ebdccc]/95 backdrop-blur-md border-b-4 border-[#36261a] border-double shadow-2xl">
-        <div className="pt-6 pb-4 px-4 text-center">
-          <h1 className="text-3xl font-black tracking-widest text-[#2c1f17] uppercase drop-shadow-md">Cardápio</h1>
+      <header className="sticky top-0 z-40 bg-[#ebdccc]/95 backdrop-blur-md border-b-4 border-[#36261a] border-double shadow-2xl">
+        <div className="pt-6 pb-2 px-4 text-center">
+          <h1 className="text-3xl font-black tracking-widest text-[#2c1f17] uppercase drop-shadow-md">
+            {currentPage.title || 'Cardápio'}
+          </h1>
         </div>
         
         {/* Category Navigation - Horizontal Scroll */}
-        <div 
-          ref={categoryNavRef}
-          className="flex overflow-x-auto hide-scrollbar px-4 pb-4 gap-3 snap-x"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
-          {flatGroups.map((group: any) => (
-            <button
-              key={group.id}
-              id={`nav-btn-${group.id}`}
-              onClick={() => scrollToGroup(group.id)}
-              className={`whitespace-nowrap px-5 py-2 rounded-lg text-sm font-bold tracking-widest uppercase transition-all snap-start
-                ${activeCategory === group.id 
-                  ? 'bg-[#36261a] text-[#ebdccc] shadow-lg transform scale-105' 
-                  : 'bg-transparent text-[#4a3625] border-2 border-[#4a3625] hover:bg-[#4a3625]/10'
-                }`}
-            >
-              {group.name}
-            </button>
-          ))}
-        </div>
+        {currentGroups.length > 0 && (
+          <div 
+            ref={categoryNavRef}
+            className="flex overflow-x-auto hide-scrollbar px-4 pb-4 pt-2 gap-3 snap-x"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {currentGroups.map((group: any) => (
+              <button
+                key={group.id}
+                id={`nav-btn-${group.id}`}
+                onClick={() => scrollToGroup(group.id)}
+                className={`whitespace-nowrap px-5 py-2 rounded-lg text-sm font-bold tracking-widest uppercase transition-all snap-start
+                  ${activeCategory === group.id 
+                    ? 'bg-[#36261a] text-[#ebdccc] shadow-lg transform scale-105' 
+                    : 'bg-transparent text-[#4a3625] border-2 border-[#4a3625] hover:bg-[#4a3625]/10'
+                  }`}
+              >
+                {group.name}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
-      <main className="px-4 pt-8 max-w-3xl mx-auto relative z-10">
-        {flatGroups.map((group: any) => (
+      <main className="px-4 pt-8 max-w-3xl mx-auto relative z-10 min-h-[60vh]">
+        {currentGroups.map((group: any) => (
           <section key={group.id} id={`group-${group.id}`} className="mb-14 scroll-mt-32">
             
             {/* Section Header Vintage */}
@@ -216,11 +221,42 @@ export default function DigitalMenu() {
       </main>
       
       {/* Footer Branding */}
-      <footer className="text-center py-12 relative z-10">
+      <footer className="text-center py-12 relative z-10 mb-16">
         <p className="text-xs text-[#4a3625] tracking-widest uppercase font-bold opacity-60 border-t border-[#4a3625]/20 pt-8 mx-12">
           Baragem • Cardápio Digital
         </p>
       </footer>
+
+      {/* FLOATING CONTROLS (Folhas) */}
+      {totalPages > 1 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 z-50 bg-[#2c1f17]/95 border border-[#4a3625] px-6 py-2 rounded-full shadow-2xl backdrop-blur-md">
+          <button 
+            onClick={() => {
+              setCurrentPageIndex(v => Math.max(0, v - 1));
+              window.scrollTo(0, 0);
+            }} 
+            className="text-[#b59b82] hover:text-white transition-all disabled:opacity-20" 
+            disabled={currentPageIndex === 0}
+          >
+            <ChevronLeft size={36} />
+          </button>
+          
+          <span className="text-[#e2cbb2] text-xl font-bold px-4 tracking-widest" style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.8)' }}>
+            FOLHA {currentPageIndex + 1 < 10 ? `0${currentPageIndex + 1}` : currentPageIndex + 1} / {totalPages}
+          </span>
+          
+          <button 
+            onClick={() => {
+              setCurrentPageIndex(v => Math.min(totalPages - 1, v + 1));
+              window.scrollTo(0, 0);
+            }} 
+            className="text-[#b59b82] hover:text-white transition-all disabled:opacity-20" 
+            disabled={currentPageIndex === totalPages - 1}
+          >
+            <ChevronRight size={36} />
+          </button>
+        </div>
+      )}
 
       <style dangerouslySetInnerHTML={{__html: `
         .hide-scrollbar::-webkit-scrollbar {
