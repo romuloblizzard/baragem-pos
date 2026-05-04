@@ -827,11 +827,31 @@ function History() {
   // Daily Stats grouping
   const dailyStats = useMemo(() => {
     const statsMap: Record<string, any> = ({});
-    
+
+    // Build period bounds for frontend filtering (orders are now fetched without date filter)
+    let periodStart: Date | null = null;
+    let periodEnd: Date | null = null;
+    const now = new Date();
+    if (historyPeriod === 'today') {
+      periodStart = new Date(now); periodStart.setHours(0, 0, 0, 0);
+      periodEnd = new Date(now); periodEnd.setHours(23, 59, 59, 999);
+    } else if (historyPeriod === 'month') {
+      periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else if (historyPeriod === 'custom') {
+      if (historyStartDate) { const d = new Date(historyStartDate); d.setMinutes(d.getMinutes() + d.getTimezoneOffset()); periodStart = d; }
+      if (historyEndDate) { const d = new Date(historyEndDate); d.setMinutes(d.getMinutes() + d.getTimezoneOffset()); d.setHours(23, 59, 59, 999); periodEnd = d; }
+    }
+
     data.orders.forEach((order: any) => {
-      const date = new Date(order.created_at).toLocaleDateString('pt-BR');
+      // Use closed_at (payment date) for paid orders so they appear on the day they were paid, not opened
+      const dateRaw = order.status === 'paid' && order.closed_at ? new Date(order.closed_at) : new Date(order.created_at);
+      // Filter by period when applicable
+      if (periodStart && dateRaw < periodStart) return;
+      if (periodEnd && dateRaw > periodEnd) return;
+      const date = dateRaw.toLocaleDateString('pt-BR');
       if (!statsMap[date]) statsMap[date] = { date, gross: 0, cmv: 0, debit: 0, credit: 0, pix: 0, cashier: 0, orders: [], items: [], transactions: [] };
-      
+
       let orderGross = 0;
       let orderCmv = 0;
       order.items?.forEach((item: any) => {
@@ -841,7 +861,7 @@ function History() {
         orderCmv += itemCmv;
         statsMap[date].items.push({ ...item, waiter: order.waiter?.name || 'Sistema', pulseira: order.pulseira });
       });
-      
+
       statsMap[date].gross += orderGross;
       statsMap[date].cmv += orderCmv;
       statsMap[date].orders.push(order);
@@ -874,7 +894,7 @@ function History() {
         const [db, mb, yb] = b.date.split('/');
         return new Date(`${ya}-${ma}-${da}`).getTime() - new Date(`${yb}-${mb}-${db}`).getTime();
     }).reverse();
-  }, [data]);
+  }, [data, historyPeriod, historyStartDate, historyEndDate]);
 
 
   useEffect(() => {
@@ -951,16 +971,15 @@ function History() {
 
   // 4. Cashier sessions with calculated stats
   const cashierStats = useMemo(() => {
-    const fixedSet = new Set(data.fixedPulseiras || []);
-
     return (data.cashier_sessions || []).map((session: any) => {
       const sessionStart = new Date(session.opened_at);
       const sessionEnd = session.closed_at ? new Date(session.closed_at) : new Date();
 
-      // Orders within session window, excluding fixed pulseiras
+      // Orders paid within session window — prefer closed_at (payment date), fall back to created_at for legacy orders without closed_at
       const sessionOrders = (data.orders || []).filter((o: any) => {
-        const t = new Date(o.created_at);
-        return t >= sessionStart && t <= sessionEnd && !fixedSet.has(o.pulseira) && o.status === 'paid';
+        if (o.status !== 'paid') return false;
+        const t = new Date(o.closed_at || o.created_at);
+        return t >= sessionStart && t <= sessionEnd;
       });
 
       // IDs of included orders (to filter matching transactions)
@@ -976,12 +995,9 @@ function History() {
         });
       });
 
-      // Taxa = real amount collected from non-fixed orders
+      // Taxa = total collected minus product value (includes service charge)
       const sessionTxTotal = (data.transactions || [])
-        .filter((tx: any) => {
-          const t = new Date(tx.created_at);
-          return t >= sessionStart && t <= sessionEnd && includedOrderIds.has(tx.order_id);
-        })
+        .filter((tx: any) => includedOrderIds.has(tx.order_id))
         .reduce((acc: number, tx: any) => acc + Number(tx.amount), 0);
       const taxa = Math.max(0, sessionTxTotal - gross);
 
@@ -1281,10 +1297,11 @@ function History() {
                       const debitSales  = sumMethod('debit');
                       const pixSales    = sumMethod('pix');
                       const dinheiro    = Number(c.initial_balance || 0) + cashSales;
+                      const sessionStat = cashierStats.find((s: any) => s.id === c.id);
 
                       return (
-                        <tr key={idx} className="hover:bg-slate-800/30">
-                          <td className="px-4 py-3 font-medium text-slate-300">{new Date(c.opened_at).toLocaleString('pt-BR')}</td>
+                        <tr key={idx} onClick={() => sessionStat && setSelectedSession(sessionStat)} className={`hover:bg-slate-800/50 transition-colors ${sessionStat ? 'cursor-pointer' : ''}`}>
+                          <td className="px-4 py-3 font-medium text-blue-400 hover:underline">{new Date(c.opened_at).toLocaleString('pt-BR')}</td>
                           <td className="px-4 py-3 text-slate-400">{c.closed_at ? new Date(c.closed_at).toLocaleString('pt-BR') : <span className="text-emerald-400 font-bold px-2 py-1 bg-emerald-500/20 rounded">EM ABERTO</span>}</td>
                           <td className="px-4 py-3 text-slate-500 text-right">R$ {Number(c.initial_balance || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-blue-400 text-right">R$ {dinheiro.toFixed(2)}</td>
@@ -1680,15 +1697,15 @@ function History() {
 
       {/* Session History Modal */}
       {selectedSession && (() => {
-        const fixedSet = new Set(data.fixedPulseiras || []);
         const sStart = new Date(selectedSession.opened_at);
         const sEnd = selectedSession.closed_at ? new Date(selectedSession.closed_at) : new Date();
         const sessionOrders = (data.orders || []).filter((o: any) => {
-          const t = new Date(o.created_at);
-          if (!(t >= sStart && t <= sEnd && !fixedSet.has(o.pulseira) && o.status === 'paid')) return false;
+          if (o.status !== 'paid') return false;
+          const t = new Date(o.closed_at || o.created_at);
+          if (!(t >= sStart && t <= sEnd)) return false;
           const total = (o.items || []).reduce((s: number, i: any) => s + (i.price_at_time * i.quantity), 0);
           return total > 0;
-        }).sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        }).sort((a: any, b: any) => new Date(a.closed_at || a.created_at).getTime() - new Date(b.closed_at || b.created_at).getTime());
         const sessionGross = sessionOrders.reduce((acc: number, o: any) =>
           acc + (o.items || []).reduce((s: number, i: any) => s + (i.price_at_time * i.quantity), 0), 0);
         const sessionNet = selectedSession.net;

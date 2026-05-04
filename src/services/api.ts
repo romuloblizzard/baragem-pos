@@ -743,13 +743,9 @@ export const api = {
   },
 
   getGeneralHistory: async (startDate?: string, endDate?: string) => {
-    // Orders
-    let oq = supabase.from('orders').select('*, waiter:employees(name), items:order_items(*, products(name))').order('created_at', { ascending: false });
-    if (startDate) oq = oq.gte('created_at', startDate);
-    if (endDate) oq = oq.lte('created_at', endDate);
-    // Hardcode exclusion of stubborn test orders
-    oq = oq.not('id', 'in', '(6,7)');
-    
+    // Orders — fetch all (frontend filters by closed_at/created_at per view). Exclude test orders.
+    let oq = supabase.from('orders').select('*, waiter:employees(name), items:order_items(*, products(name))').order('created_at', { ascending: false }).not('id', 'in', '(6,7)');
+
     // Transactions
     let tq = supabase.from('transactions').select('*').order('created_at', { ascending: false });
     if (startDate) tq = tq.gte('created_at', startDate);
