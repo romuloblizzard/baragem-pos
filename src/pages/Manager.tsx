@@ -421,6 +421,7 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
   const [viewDetailsOrder, setViewDetailsOrder] = useState<any>(null);
   const [includeServiceFee, setIncludeServiceFee] = useState(true);
   const [coverFee, setCoverFee] = useState(0);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -439,6 +440,8 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
   };
 
   const handleCloseOrders = async (method: string) => {
+    if (isProcessingPayment) return;
+    setIsProcessingPayment(true);
     const ordersToClose = selectedOrders.length > 0 ? selectedOrders : (viewDetailsOrder ? [viewDetailsOrder] : []);
 
     try {
@@ -462,6 +465,8 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
       loadOrders();
     } catch (err) {
       alert('Erro ao fechar pedidos');
+    } finally {
+      setIsProcessingPayment(false);
     }
   };
 
@@ -687,11 +692,11 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
                 <div className="space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-200">
                   <p className="text-center text-sm text-slate-400 mb-2">Selecione o método de pagamento:</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => handleCloseOrders('cash')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm">Dinheiro</button>
-                    <button onClick={() => handleCloseOrders('card')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm">Cartão</button>
-                    <button onClick={() => handleCloseOrders('pix')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm">PIX</button>
+                    <button disabled={isProcessingPayment} onClick={() => handleCloseOrders('cash')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm disabled:opacity-50">Dinheiro</button>
+                    <button disabled={isProcessingPayment} onClick={() => handleCloseOrders('card')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm disabled:opacity-50">Cartão</button>
+                    <button disabled={isProcessingPayment} onClick={() => handleCloseOrders('pix')} className="bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-sm disabled:opacity-50">PIX</button>
                   </div>
-                  <button onClick={() => setIsPaymentModalOpen(false)} className="w-full text-slate-500 text-sm hover:text-white py-2">Cancelar Pagamento</button>
+                  <button disabled={isProcessingPayment} onClick={() => setIsPaymentModalOpen(false)} className="w-full text-slate-500 text-sm hover:text-white py-2">Cancelar Pagamento</button>
                 </div>
               )}
             </div>
@@ -1770,8 +1775,23 @@ function History() {
                       <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-700/50">
                         <div className="flex flex-wrap gap-1">
                           {orderTxs.map((tx: any, i: number) => (
-                            <span key={i} className={`text-xs font-semibold px-2 py-0.5 rounded-full ${methodColor[tx.method] || 'bg-slate-700 text-slate-300'}`}>
+                            <span key={i} className={`flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${methodColor[tx.method] || 'bg-slate-700 text-slate-300'}`}>
                               {methodLabel[tx.method] || tx.method} R$ {Number(tx.amount).toFixed(2)}
+                              <button 
+                                onClick={async () => {
+                                  if (!confirm(`Deseja realmente apagar este pagamento de R$ ${Number(tx.amount).toFixed(2)}?`)) return;
+                                  try {
+                                    await api.deleteTransaction(tx.id);
+                                    window.location.reload(); // Reload to refresh history state
+                                  } catch (e) {
+                                    alert('Erro ao apagar transação.');
+                                  }
+                                }}
+                                className="ml-1 opacity-60 hover:opacity-100 hover:text-red-400"
+                                title="Apagar transação"
+                              >
+                                <XCircle size={14} />
+                              </button>
                             </span>
                           ))}
                         </div>

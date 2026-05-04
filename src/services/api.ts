@@ -686,6 +686,10 @@ export const api = {
     return { success: true };
   },
   payOrder: async (orderId: number, amount: number, method: string) => {
+    // Prevent double payments
+    const { data: order } = await supabase.from('orders').select('status').eq('id', orderId).single();
+    if (order?.status === 'paid') return { success: true };
+
     const employee_id = localStorage.getItem('pos_employee_id');
     const { error: txError } = await supabase.from('transactions').insert({
       order_id: orderId,
@@ -720,6 +724,12 @@ export const api = {
       closed_at: new Date().toISOString()
     }).eq('id', orderId);
     if (updError) throw updError;
+    return { success: true };
+  },
+
+  deleteTransaction: async (transactionId: number) => {
+    const { error } = await supabase.from('transactions').delete().eq('id', transactionId);
+    if (error) throw error;
     return { success: true };
   },
 
