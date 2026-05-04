@@ -16,6 +16,7 @@ export default function DigitalMenu() {
   const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<string>('');
+  const [flatGroups, setFlatGroups] = useState<any[]>([]);
   
   const categoryNavRef = useRef<HTMLDivElement>(null);
 
@@ -27,24 +28,22 @@ export default function DigitalMenu() {
           api.getSettings()
         ]);
         
-        // Filter out ingredients and unwanted categories
-        const visibleProducts = productsData.filter((p: any) => {
-          const cat = (p.category_name || '').toLowerCase();
-          return p.type !== 'ingredient' && 
-                 !cat.includes('insumo') && 
-                 !cat.includes('matéria') &&
-                 p.active !== false;
-        });
-        
-        setProducts(visibleProducts);
+        setProducts(productsData);
         
         if (settingsData.digital_menu_config) {
-          setConfig(JSON.parse(settingsData.digital_menu_config));
+          const parsedConfig = JSON.parse(settingsData.digital_menu_config);
+          setConfig(parsedConfig);
+          
+          const groups: any[] = [];
+          parsedConfig.pages?.forEach((page: any) => {
+            page.groups?.forEach((group: any) => {
+              groups.push(group);
+            });
+          });
+          
+          setFlatGroups(groups);
+          if (groups.length > 0) setActiveCategory(groups[0].id);
         }
-        
-        // Find categories
-        const cats = Array.from(new Set(visibleProducts.map((p: any) => p.category_name || 'Diversos'))).sort();
-        if (cats.length > 0) setActiveCategory(cats[0] as string);
         
       } catch (err) {
         console.error('Erro ao carregar cardápio', err);
@@ -57,54 +56,43 @@ export default function DigitalMenu() {
 
   // ScrollSpy Implementation
   useEffect(() => {
-    if (loading) return;
+    if (loading || flatGroups.length === 0) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        // Find the most visible section
         const visibleEntries = entries.filter(entry => entry.isIntersecting);
         if (visibleEntries.length > 0) {
-          // Get the one with the highest intersection ratio
           const mostVisible = visibleEntries.reduce((prev, current) => 
             (prev.intersectionRatio > current.intersectionRatio) ? prev : current
           );
           
-          const catName = mostVisible.target.id.replace('category-', '');
-          setActiveCategory(catName);
+          const groupId = mostVisible.target.id.replace('group-', '');
+          setActiveCategory(groupId);
 
-          // Scroll the top nav button into view
-          const btn = document.getElementById(`nav-btn-${catName}`);
+          const btn = document.getElementById(`nav-btn-${groupId}`);
           if (btn && categoryNavRef.current) {
             btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
           }
         }
       },
       {
-        rootMargin: '-100px 0px -60% 0px', // Triggers when element is near the top
+        rootMargin: '-100px 0px -60% 0px',
         threshold: [0, 0.25, 0.5, 0.75, 1]
       }
     );
 
-    const sections = document.querySelectorAll('section[id^="category-"]');
+    const sections = document.querySelectorAll('section[id^="group-"]');
     sections.forEach((section) => observer.observe(section));
 
     return () => {
       sections.forEach((section) => observer.unobserve(section));
     };
-  }, [loading, products]);
+  }, [loading, flatGroups]);
 
-  const categories = Array.from(new Set(products.map(p => p.category_name || 'Diversos'))).sort();
-  
-  const groupedProducts: Record<string, Product[]> = {};
-  categories.forEach(cat => {
-    groupedProducts[cat] = products.filter(p => (p.category_name || 'Diversos') === cat);
-  });
-
-  const scrollToCategory = (category: string) => {
-    setActiveCategory(category);
-    const element = document.getElementById(`category-${category}`);
+  const scrollToGroup = (groupId: string) => {
+    setActiveCategory(groupId);
+    const element = document.getElementById(`group-${groupId}`);
     if (element) {
-      // Offset by the height of the sticky header (approx 80px)
       const y = element.getBoundingClientRect().top + window.scrollY - 80;
       window.scrollTo({ top: y, behavior: 'smooth' });
     }
@@ -161,18 +149,18 @@ export default function DigitalMenu() {
           className="flex overflow-x-auto hide-scrollbar px-4 pb-4 gap-3 snap-x"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {categories.map((cat) => (
+          {flatGroups.map((group: any) => (
             <button
-              key={cat}
-              id={`nav-btn-${cat}`}
-              onClick={() => scrollToCategory(cat)}
+              key={group.id}
+              id={`nav-btn-${group.id}`}
+              onClick={() => scrollToGroup(group.id)}
               className={`whitespace-nowrap px-5 py-2 rounded-lg text-sm font-bold tracking-widest uppercase transition-all snap-start
-                ${activeCategory === cat 
+                ${activeCategory === group.id 
                   ? 'bg-[#36261a] text-[#ebdccc] shadow-lg transform scale-105' 
                   : 'bg-transparent text-[#4a3625] border-2 border-[#4a3625] hover:bg-[#4a3625]/10'
                 }`}
             >
-              {cat}
+              {group.name}
             </button>
           ))}
         </div>
@@ -180,40 +168,47 @@ export default function DigitalMenu() {
 
       {/* Main Content */}
       <main className="px-4 pt-8 max-w-3xl mx-auto relative z-10">
-        {categories.map((cat) => (
-          <section key={cat} id={`category-${cat}`} className="mb-14 scroll-mt-32">
+        {flatGroups.map((group: any) => (
+          <section key={group.id} id={`group-${group.id}`} className="mb-14 scroll-mt-32">
             
             {/* Section Header Vintage */}
             <div className="flex items-center gap-4 mb-8">
               <div className="h-[2px] bg-gradient-to-r from-transparent via-[#4a3625] to-[#4a3625] flex-1" />
               <h2 className="text-2xl font-black tracking-widest text-[#2c1f17] uppercase px-4 py-2 border-y-2 border-[#4a3625]">
-                {cat}
+                {group.name}
               </h2>
               <div className="h-[2px] bg-gradient-to-l from-transparent via-[#4a3625] to-[#4a3625] flex-1" />
             </div>
 
             {/* Product List */}
             <div className="grid gap-6">
-              {groupedProducts[cat].map((product) => (
-                <div 
-                  key={product.id} 
-                  className="bg-transparent border-b border-dashed border-[#4a3625]/40 pb-4 flex justify-between items-start"
-                >
-                  <div className="flex-1 pr-4">
-                    <h3 className="text-lg font-bold text-[#1a110a] uppercase tracking-wide">{product.name}</h3>
-                    {product.description && (
-                      <p className="text-sm text-[#4a3625] mt-1 italic font-serif leading-snug">{product.description}</p>
-                    )}
+              {group.products?.map((p: any) => {
+                const liveProduct = products.find(prod => prod.id === p.id);
+                if (!liveProduct) return null;
+
+                return (
+                  <div 
+                    key={liveProduct.id} 
+                    className="bg-transparent border-b border-dashed border-[#4a3625]/40 pb-4 flex justify-between items-start"
+                  >
+                    <div className="flex-1 pr-4">
+                      <h3 className={`text-lg font-bold text-[#1a110a] uppercase tracking-wide ${p.highlighted ? 'text-amber-700' : ''}`}>
+                        {liveProduct.name}
+                      </h3>
+                      {liveProduct.description && (
+                        <p className="text-sm text-[#4a3625] mt-1 italic font-serif leading-snug">{liveProduct.description}</p>
+                      )}
+                    </div>
+                    
+                    <div className="flex flex-col items-end min-w-[80px]">
+                      <span className="text-xs text-[#4a3625] font-bold">R$</span>
+                      <span className="text-xl font-black text-[#1a110a] tracking-tighter">
+                        {liveProduct.price.toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
                   </div>
-                  
-                  <div className="flex flex-col items-end min-w-[80px]">
-                    <span className="text-xs text-[#4a3625] font-bold">R$</span>
-                    <span className="text-xl font-black text-[#1a110a] tracking-tighter">
-                      {product.price.toFixed(2).replace('.', ',')}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             
           </section>
