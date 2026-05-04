@@ -5,6 +5,7 @@ import Waiter from './pages/Waiter';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Menu from './pages/Menu';
+import DigitalMenu from './pages/DigitalMenu';
 import MenuConfig from './pages/MenuConfig';
 import { api } from './services/api';
 
@@ -130,6 +131,7 @@ export default function App() {
       <Routes>
         {/* Rota pública do Cardápio Digital (Acessível via QR Code) */}
         <Route path="/menu" element={<Menu />} />
+        <Route path="/cardapio" element={<DigitalMenu />} />
         
         {/* Todas as outras rotas são protegidas pelo PIN */}
         <Route path="*" element={<ProtectedApp />} />
