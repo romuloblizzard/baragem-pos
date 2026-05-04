@@ -127,7 +127,7 @@ export default function DigitalMenu() {
 
   return (
     <div 
-      className="min-h-screen bg-parchment text-[#1a110a] pb-20 relative overflow-hidden"
+      className="min-h-screen bg-parchment text-[#1a110a] pb-20 relative"
       style={{ fontFamily }}
     >
       {/* Dynamic Watermark Background from Config */}
