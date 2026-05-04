@@ -83,21 +83,6 @@ export default function App() {
     localStorage.removeItem('pos_employee_id');
   };
 
-  if (!userRole) {
-    return (
-      <Login
-        onLogin={handleLogin}
-        error={loginError}
-        isLoading={isLoggingIn}
-        requiresForcePin={requiresForceAuthPin}
-        onCancelForce={() => {
-          setRequiresForceAuthPin(null);
-          setLoginError('');
-        }}
-      />
-    );
-  }
-
   // Define route protection component
   const ProtectedAdminRoute = ({ children }: { children: React.ReactNode }) => {
     if (userRole !== 'admin') {
@@ -106,13 +91,23 @@ export default function App() {
     return <>{children}</>;
   };
 
-  return (
-    <BrowserRouter>
-      {/* 
-        Optional: We could add a global logout button somewhere, 
-        but usually it's placed inside the Manager/Waiter header. 
-        For now, the roles are fully protecting the routes.
-      */}
+  const ProtectedApp = () => {
+    if (!userRole) {
+      return (
+        <Login
+          onLogin={handleLogin}
+          error={loginError}
+          isLoading={isLoggingIn}
+          requiresForcePin={requiresForceAuthPin}
+          onCancelForce={() => {
+            setRequiresForceAuthPin(null);
+            setLoginError('');
+          }}
+        />
+      );
+    }
+
+    return (
       <Routes>
         <Route path="/" element={<Home onLogout={handleLogout} />} />
         <Route
@@ -124,8 +119,20 @@ export default function App() {
           }
         />
         <Route path="/waiter/*" element={<Waiter />} />
-        <Route path="/menu" element={<Menu />} />
         <Route path="/menu-config" element={<ProtectedAdminRoute><MenuConfig /></ProtectedAdminRoute>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    );
+  };
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Rota pública do Cardápio Digital (Acessível via QR Code) */}
+        <Route path="/menu" element={<Menu />} />
+        
+        {/* Todas as outras rotas são protegidas pelo PIN */}
+        <Route path="*" element={<ProtectedApp />} />
       </Routes>
     </BrowserRouter>
   );

@@ -113,8 +113,8 @@ export default function Menu() {
         <button onClick={() => setCurrentPageIndex(v => Math.max(0, v - 1))} className="text-[#b59b82] hover:text-white transition-all disabled:opacity-20" disabled={currentPageIndex === 0}><ChevronLeft size={36} /></button>
         <span className="text-[#e2cbb2] text-xl font-bold px-4 tracking-widest textShadow">FOLHA {currentPageIndex + 1 < 10 ? `0${currentPageIndex + 1}` : currentPageIndex + 1} / {totalPages}</span>
         <button onClick={() => setCurrentPageIndex(v => Math.min(totalPages - 1, v + 1))} className="text-[#b59b82] hover:text-white transition-all disabled:opacity-20" disabled={currentPageIndex === totalPages - 1}><ChevronRight size={36} /></button>
-        <div className="w-px h-8 bg-[#4a3625] mx-2" />
-        <button onClick={handlePrint} className="bg-[#a88a6d] hover:bg-[#c4a482] text-[#2c1f17] px-6 py-2 rounded-full font-bold flex items-center gap-2 transition-all">
+        <div className="hidden md:block w-px h-8 bg-[#4a3625] mx-2" />
+        <button onClick={handlePrint} className="hidden md:flex bg-[#a88a6d] hover:bg-[#c4a482] text-[#2c1f17] px-6 py-2 rounded-full font-bold items-center gap-2 transition-all">
           <Printer size={20} /> IMPRIMIR A4
         </button>
       </div>
