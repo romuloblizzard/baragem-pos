@@ -1911,6 +1911,7 @@ function History() {
                       <thead className="bg-slate-800/80 text-slate-400 uppercase text-xs">
                         <tr>
                           <th className="px-4 py-3 text-left">Data/Hora</th>
+                          <th className="px-4 py-3 text-left">Comanda</th>
                           <th className="px-4 py-3 text-left">Método</th>
                           <th className="px-4 py-3 text-right">Valor Bruto</th>
                         </tr>
@@ -1919,6 +1920,18 @@ function History() {
                         {bankTxs.map((tx: any) => (
                           <tr key={tx.id} className="hover:bg-slate-800/30 transition-colors">
                             <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{new Date(tx.created_at).toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-slate-300">
+                              {(() => {
+                                const order = data.orders?.find((o: any) => o.id === tx.order_id);
+                                if (!order) return <span className="text-slate-500">—</span>;
+                                return (
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-white">#{String(order.pulseira).padStart(4, '0')}</span>
+                                    {order.customer_name && <span className="text-xs text-slate-400">{order.customer_name}</span>}
+                                  </div>
+                                );
+                              })()}
+                            </td>
                             <td className="px-4 py-3">
                               <span className={`px-2 py-1 rounded text-xs font-bold ${methodColor[tx.method] || 'bg-slate-700 text-slate-300'}`}>
                                 {methodLabel[tx.method] || tx.method}
@@ -1933,22 +1946,32 @@ function History() {
                 )}
               </div>
               
-              <div className="p-4 border-t border-slate-800 grid grid-cols-4 gap-3 text-center text-sm bg-slate-900/50">
-                <div className="bg-slate-800/50 rounded-lg p-2">
-                  <p className="text-slate-500 text-xs mb-1">Total Transações</p>
-                  <p className="font-bold text-white">{bankTxs.length}</p>
+              <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Resumo da Sessão</h4>
+                  <span className="text-xs text-slate-500">{bankTxs.length} transações</span>
                 </div>
-                <div className="bg-blue-500/10 rounded-lg p-2 border border-blue-500/20">
-                  <p className="text-blue-400/70 text-xs mb-1">Débito (Bruto)</p>
-                  <p className="font-bold text-blue-400">R$ {bankTxs.filter((t: any) => t.method === 'debit').reduce((a: number, t: any) => a + Number(t.amount), 0).toFixed(2)}</p>
-                </div>
-                <div className="bg-purple-500/10 rounded-lg p-2 border border-purple-500/20">
-                  <p className="text-purple-400/70 text-xs mb-1">Crédito (Bruto)</p>
-                  <p className="font-bold text-purple-400">R$ {bankTxs.filter((t: any) => ['credit', 'card'].includes(t.method)).reduce((a: number, t: any) => a + Number(t.amount), 0).toFixed(2)}</p>
-                </div>
-                <div className="bg-cyan-500/10 rounded-lg p-2 border border-cyan-500/20">
-                  <p className="text-cyan-400/70 text-xs mb-1">PIX (Bruto)</p>
-                  <p className="font-bold text-cyan-400">R$ {bankTxs.filter((t: any) => t.method === 'pix').reduce((a: number, t: any) => a + Number(t.amount), 0).toFixed(2)}</p>
+                <div className="grid grid-cols-4 gap-3 text-right text-sm">
+                  <div className="bg-slate-800/50 rounded-lg p-3">
+                    <p className="text-slate-400 text-xs mb-1 uppercase font-bold text-left">Total Geral</p>
+                    <p className="font-bold text-white text-lg">R$ {(selectedBankSession.debit + selectedBankSession.credit + selectedBankSession.pix).toFixed(2)}</p>
+                    <p className="text-emerald-400 text-xs mt-1 border-t border-slate-700 pt-1">Líq: R$ {selectedBankSession.totalBank.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-blue-500/10 rounded-lg p-3 border border-blue-500/20">
+                    <p className="text-blue-400/70 text-xs mb-1 uppercase font-bold text-left">Débito</p>
+                    <p className="font-bold text-blue-400 text-lg">R$ {selectedBankSession.debit.toFixed(2)}</p>
+                    <p className="text-blue-400/70 text-xs mt-1 border-t border-blue-500/20 pt-1">Líq: R$ {selectedBankSession.debitNet.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-purple-500/10 rounded-lg p-3 border border-purple-500/20">
+                    <p className="text-purple-400/70 text-xs mb-1 uppercase font-bold text-left">Crédito</p>
+                    <p className="font-bold text-purple-400 text-lg">R$ {selectedBankSession.credit.toFixed(2)}</p>
+                    <p className="text-purple-400/70 text-xs mt-1 border-t border-purple-500/20 pt-1">Líq: R$ {selectedBankSession.creditNet.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-cyan-500/10 rounded-lg p-3 border border-cyan-500/20">
+                    <p className="text-cyan-400/70 text-xs mb-1 uppercase font-bold text-left">PIX</p>
+                    <p className="font-bold text-cyan-400 text-lg">R$ {selectedBankSession.pix.toFixed(2)}</p>
+                    <p className="text-cyan-400/70 text-xs mt-1 border-t border-cyan-500/20 pt-1">Líq: R$ {selectedBankSession.pixNet.toFixed(2)}</p>
+                  </div>
                 </div>
               </div>
             </div>
