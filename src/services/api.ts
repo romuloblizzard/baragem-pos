@@ -495,8 +495,16 @@ export const api = {
 
     if (itemsError) throw itemsError;
 
+    const { data: txs, error: txsError } = await supabase
+      .from('transactions')
+      .select('*')
+      .in('order_id', orderIds);
+
+    if (txsError) throw txsError;
+
     return orders.map((order: any) => ({
       ...order,
+      transactions: (txs || []).filter(t => t.order_id === order.id),
       items: items.filter(i => i.order_id === order.id).map((i: any) => ({ 
         ...i, 
         product_name: i.products?.name,
@@ -709,6 +717,10 @@ export const api = {
   },
 
   paySplitOrder: async (orderId: number, entries: Array<{ amount: number; method: string }>) => {
+    // Prevent double payments
+    const { data: order } = await supabase.from('orders').select('status').eq('id', orderId).single();
+    if (order?.status === 'paid') return { success: true };
+
     const employee_id = localStorage.getItem('pos_employee_id');
     for (const entry of entries) {
       const { error } = await supabase.from('transactions').insert({

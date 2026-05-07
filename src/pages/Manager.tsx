@@ -558,11 +558,45 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
                 <h3 className="font-bold text-lg text-slate-200">{order.customer_name}</h3>
                 {order.customer_phone && <p className="text-xs text-blue-400">📞 {order.customer_phone}</p>}
 
-                <div className="mt-3 pt-3 border-t border-slate-700/50 flex justify-between items-center">
-                  <span className="text-sm text-slate-400">{order.items.length} itens</span>
-                  <span className="font-bold text-emerald-400">
-                    R$ {order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0).toFixed(2)}
-                  </span>
+                <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-1">
+                  {(() => {
+                    const subtotal = order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0);
+                    // Aplica desconto (regra idêntica ao Waiter)
+                    const discount = Math.min(subtotal, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100);
+                    const subtotalWithDiscount = subtotal - discount;
+                    const taxa = subtotalWithDiscount * 0.1; // Taxa de 10%
+                    const totalOrder = subtotalWithDiscount + taxa;
+                    const totalPaid = (order.transactions || []).reduce((acc: number, tx: any) => acc + tx.amount, 0);
+
+                    return (
+                      <>
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-slate-400">Subtotal ({order.items.length} itens)</span>
+                          <span className="text-slate-300">R$ {subtotal.toFixed(2)}</span>
+                        </div>
+                        {discount > 0 && (
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-slate-400">Desconto</span>
+                            <span className="text-red-400">- R$ {discount.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-slate-400">Taxa (10%)</span>
+                          <span className="text-amber-400">R$ {taxa.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 mt-1 border-t border-slate-700/50">
+                          <span className="font-bold text-slate-200">Valor Total</span>
+                          <span className="font-bold text-emerald-400">R$ {totalOrder.toFixed(2)}</span>
+                        </div>
+                        {totalPaid > 0 && (
+                          <div className="flex justify-between items-center pt-1">
+                            <span className="font-bold text-blue-400">Total Pago</span>
+                            <span className="font-bold text-blue-400">R$ {totalPaid.toFixed(2)}</span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             );
@@ -756,9 +790,9 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
             </div>
 
             <div className="space-y-3">
-              <button onClick={() => handleCloseOrders('cash')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">Dinheiro</button>
-              <button onClick={() => handleCloseOrders('card')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">Cartão</button>
-              <button onClick={() => handleCloseOrders('pix')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">PIX</button>
+              <button disabled={isProcessingPayment} onClick={() => handleCloseOrders('cash')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">Dinheiro</button>
+              <button disabled={isProcessingPayment} onClick={() => handleCloseOrders('card')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">Cartão</button>
+              <button disabled={isProcessingPayment} onClick={() => handleCloseOrders('pix')} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">PIX</button>
             </div>
             <button onClick={() => setIsPaymentModalOpen(false)} className="w-full mt-4 py-2 text-slate-400 hover:text-white">Cancelar</button>
           </div>
@@ -807,13 +841,14 @@ function History() {
   const [loading, setLoading] = useState(false);
   
   // Date filters
-  const [historyPeriod, setHistoryPeriod] = useState<'today' | 'month' | 'custom' | 'all' | 'bank' | 'team'>('today');
+  const [historyPeriod, setHistoryPeriod] = useState<'today' | 'month' | 'custom'>('today');
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
 
   // Sub Tabs
-  const [subTab, setSubTab] = useState<'summary' | 'products' | 'cashier' | 'orders'>('summary');
+  const [subTab, setSubTab] = useState<'summary' | 'detailed' | 'products' | 'cashier' | 'orders' | 'bank' | 'team'>('summary');
   const [viewDetailsOrder, setViewDetailsOrder] = useState<any>(null);
+  const [selectedBankSession, setSelectedBankSession] = useState<any>(null);
 
   // Products tab sort
   const [productSort, setProductSort] = useState<{ field: 'name' | 'quantity' | 'revenue', dir: 'asc' | 'desc' }>({ field: 'revenue', dir: 'desc' });
@@ -825,7 +860,6 @@ function History() {
   };
 
   // Detailed View State
-  const [isDetailedView, setIsDetailedView] = useState(false);
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [drillDownModal, setDrillDownModal] = useState<{type: 'day' | 'gross' | 'cmv' | 'net', date: string, data: any} | null>(null);
 
@@ -1090,22 +1124,23 @@ function History() {
         </h2>
       </div>
 
+      {/* Views (Sub Tabs) */}
+      <div className="flex border-b border-slate-800 overflow-x-auto scrollbar-hide pb-2">
+        <button onClick={() => setSubTab('summary')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'summary' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Resumo e Pagamentos</button>
+        <button onClick={() => setSubTab('detailed')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors flex items-center gap-2 rounded-lg ${subTab === 'detailed' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Histórico Detalhado de Vendas"><TableProperties size={18} /> Histórico</button>
+        <button onClick={() => setSubTab('orders')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'orders' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Comandas / Caixa</button>
+        <button onClick={() => setSubTab('bank')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'bank' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Banco</button>
+        <button onClick={() => setSubTab('team')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'team' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Taxa / Equipe</button>
+        <button onClick={() => setSubTab('products')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'products' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Produtos Vendidos</button>
+        <button onClick={() => setSubTab('cashier')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'cashier' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Sessões de Caixa</button>
+      </div>
+
       {/* Date Filters */}
       <div className="p-4 rounded-xl border border-slate-800 flex flex-wrap gap-4 items-center bg-slate-900/50">
         <div className="flex bg-slate-800 rounded-lg p-1">
-          <button onClick={() => { setHistoryPeriod('today'); setIsDetailedView(false); }} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'today' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Hoje</button>
-          <button onClick={() => { setHistoryPeriod('month'); setIsDetailedView(false); }} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'month' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Este Mês</button>
-          <button onClick={() => { setHistoryPeriod('custom'); setIsDetailedView(false); }} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'custom' && !isDetailedView ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Personalizado</button>
-          <button
-            onClick={() => setIsDetailedView(!isDetailedView)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${isDetailedView ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
-            title="Histórico Detalhado de Vendas"
-          >
-            <TableProperties size={18} /> Histórico
-          </button>
-          <button onClick={() => { setHistoryPeriod('all'); setSubTab('orders'); setIsDetailedView(false); }} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'all' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Comandas / Caixa</button>
-          <button onClick={() => { setHistoryPeriod('bank'); setIsDetailedView(false); }} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'bank' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Banco</button>
-          <button onClick={() => { setHistoryPeriod('team'); setIsDetailedView(false); }} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'team' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>Taxa / Equipe</button>
+          <button onClick={() => setHistoryPeriod('today')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'today' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}>Hoje</button>
+          <button onClick={() => setHistoryPeriod('month')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'month' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}>Este Mês</button>
+          <button onClick={() => setHistoryPeriod('custom')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${historyPeriod === 'custom' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}>Personalizado</button>
         </div>
 
         {historyPeriod === 'custom' && (
@@ -1117,21 +1152,12 @@ function History() {
         )}
       </div>
 
-      {/* Sub tabs */}
-      {!isDetailedView && historyPeriod !== 'all' && historyPeriod !== 'bank' && historyPeriod !== 'team' && (
-        <div className="flex border-b border-slate-800 overflow-x-auto scrollbar-hide">
-          <button onClick={() => setSubTab('summary')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'summary' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Resumo e Pagamentos</button>
-          <button onClick={() => setSubTab('products')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'products' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Produtos Vendidos</button>
-          <button onClick={() => setSubTab('cashier')} className={`px-6 py-3 font-medium whitespace-nowrap transition-colors border-b-2 ${subTab === 'cashier' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Caixa (Abertura/Fecho)</button>
-        </div>
-      )}
-
       {loading ? (
         <div className="text-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div></div>
       ) : (
         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
           
-          {isDetailedView ? (
+          {subTab === 'detailed' ? (
              <div className="overflow-x-auto">
                <table className="w-full text-left text-sm min-w-[800px]">
                  <thead className="text-slate-400 uppercase bg-slate-800/50">
@@ -1196,7 +1222,7 @@ function History() {
              </div>
           ) : (
             <>
-          {subTab === 'summary' && historyPeriod !== 'all' && historyPeriod !== 'bank' && historyPeriod !== 'team' && (
+          {subTab === 'summary' && (
              <div className="space-y-6">
                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                  <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl">
@@ -1227,7 +1253,7 @@ function History() {
              </div>
           )}
 
-          {subTab === 'products' && historyPeriod !== 'all' && historyPeriod !== 'bank' && historyPeriod !== 'team' && (() => {
+          {subTab === 'products' && (() => {
             const SortIcon = ({ field }: { field: 'name' | 'quantity' | 'revenue' }) => {
               if (productSort.field !== field) return <span className="text-slate-600 ml-1">↕</span>;
               return <span className="text-blue-400 ml-1">{productSort.dir === 'desc' ? '↓' : '↑'}</span>;
@@ -1269,7 +1295,7 @@ function History() {
             );
           })()}
 
-          {subTab === 'cashier' && historyPeriod !== 'all' && historyPeriod !== 'bank' && historyPeriod !== 'team' && (
+          {subTab === 'cashier' && (
              <div className="overflow-x-auto">
                <table className="w-full text-left text-sm min-w-[1100px]">
                  <thead className="text-slate-400 uppercase bg-slate-800/50">
@@ -1323,7 +1349,7 @@ function History() {
              </div>
           )}
 
-          {subTab === 'orders' && historyPeriod === 'all' && (
+          {subTab === 'orders' && (
             <div className="space-y-4">
               {/* Totals summary */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1396,7 +1422,7 @@ function History() {
             </div>
           )}
 
-          {historyPeriod === 'bank' && (
+          {subTab === 'bank' && (
             <div className="space-y-4">
               {/* Totals */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1451,7 +1477,7 @@ function History() {
                       <tr><td colSpan={12} className="py-8 text-center text-slate-500">Nenhuma transação encontrada.</td></tr>
                     )}
                     {bankStats.map((s: any) => (
-                      <tr key={s.id} className="hover:bg-slate-800/30 transition-colors">
+                      <tr key={s.id} onClick={() => setSelectedBankSession(s)} className="hover:bg-slate-800/30 transition-colors cursor-pointer">
                         <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{new Date(s.opened_at).toLocaleString('pt-BR')}</td>
                         <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{s.closed_at ? new Date(s.closed_at).toLocaleString('pt-BR') : '—'}</td>
                         {/* Débito */}
@@ -1493,7 +1519,7 @@ function History() {
             </div>
           )}
 
-          {historyPeriod === 'team' && (() => {
+          {subTab === 'team' && (() => {
             const totalPct = teamMembers.reduce((a, m) => a + m.pct, 0);
             const totalEmp = teamMembers.reduce((a, m) => a + teamTotalTaxa * (m.pct / 100), 0);
             const casaPct  = Math.max(0, 100 - totalPct);
@@ -1741,18 +1767,48 @@ function History() {
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {sessionOrders.length === 0 && <p className="text-center text-slate-500 py-8">Nenhuma comanda paga nesta sessão.</p>}
                 {sessionOrders.map((order: any) => {
-                  const orderTotal = order.items?.reduce((acc: number, i: any) => acc + (i.price_at_time * i.quantity), 0) || 0;
+                  const orderSubtotal = order.items?.reduce((acc: number, i: any) => acc + (i.price_at_time * i.quantity), 0) || 0;
+                  const orderDiscount = Math.min(orderSubtotal, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100);
+                  const orderSubtotalWithDiscount = orderSubtotal - orderDiscount;
+                  const taxaEsperada = orderSubtotalWithDiscount * 0.1;
+                  const totalEsperado = orderSubtotalWithDiscount + taxaEsperada;
+                  
                   const orderTxs = txByOrder[order.id] || [];
                   const txTotal = orderTxs.reduce((a: number, tx: any) => a + Number(tx.amount), 0);
-                  const taxa = Math.max(0, txTotal - orderTotal);
+                  
                   return (
                     <div key={order.id} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded text-xs font-bold">#{order.pulseira}</span>
-                          <span className="font-medium text-slate-200">{order.customer_name || 'Sem Nome'}</span>
+                      <div className="flex justify-between items-start mb-3 border-b border-slate-700 pb-2">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded text-xs font-bold">#{order.pulseira}</span>
+                            <span className="font-medium text-slate-200">{order.customer_name || 'Sem Nome'}</span>
+                          </div>
                         </div>
-                        <span className="font-bold text-emerald-400">R$ {orderTotal.toFixed(2)}</span>
+                        <div className="text-right text-sm space-y-0.5">
+                          <div className="flex justify-between gap-4">
+                            <span className="text-slate-400">Subtotal:</span>
+                            <span className="text-slate-300">R$ {orderSubtotal.toFixed(2)}</span>
+                          </div>
+                          {orderDiscount > 0 && (
+                            <div className="flex justify-between gap-4">
+                              <span className="text-slate-400">Desconto:</span>
+                              <span className="text-red-400">-R$ {orderDiscount.toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between gap-4">
+                            <span className="text-slate-400">Taxa (10%):</span>
+                            <span className="text-amber-400">R$ {taxaEsperada.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between gap-4 pt-1 border-t border-slate-700 font-bold">
+                            <span className="text-slate-200">Total Devido:</span>
+                            <span className="text-emerald-400">R$ {totalEsperado.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between gap-4 font-bold">
+                            <span className="text-blue-400">Total Pago:</span>
+                            <span className="text-blue-400">R$ {txTotal.toFixed(2)}</span>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="space-y-1 mt-2 pl-2 border-l border-slate-700">
@@ -1782,7 +1838,7 @@ function History() {
                                   if (!confirm(`Deseja realmente apagar este pagamento de R$ ${Number(tx.amount).toFixed(2)}?`)) return;
                                   try {
                                     await api.deleteTransaction(tx.id);
-                                    window.location.reload(); // Reload to refresh history state
+                                    loadData(); // Fetch new data to update UI without reloading
                                   } catch (e) {
                                     alert('Erro ao apagar transação.');
                                   }
@@ -1815,6 +1871,90 @@ function History() {
         );
       })()}
 
+      {/* Selected Bank Session Modal */}
+      {selectedBankSession && (() => {
+        const sStart = new Date(selectedBankSession.opened_at);
+        const sEnd = selectedBankSession.closed_at ? new Date(selectedBankSession.closed_at) : new Date();
+        
+        // Filter transactions matching this session period and bank methods
+        const bankTxs = (data.transactions || []).filter((tx: any) => {
+          if (!['debit', 'credit', 'pix', 'card'].includes(tx.method)) return false;
+          const t = new Date(tx.created_at);
+          return t >= sStart && t <= sEnd;
+        }).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        const methodLabel: Record<string, string> = { debit: 'Débito', credit: 'Crédito', card: 'Crédito', pix: 'PIX' };
+        const methodColor: Record<string, string> = { debit: 'bg-blue-500/20 text-blue-400', credit: 'bg-purple-500/20 text-purple-400', card: 'bg-purple-500/20 text-purple-400', pix: 'bg-cyan-500/20 text-cyan-400' };
+
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]">
+              <div className="flex justify-between items-start p-6 border-b border-slate-800">
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    Detalhes Bancários da Sessão
+                  </h3>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Abertura: {new Date(selectedBankSession.opened_at).toLocaleString('pt-BR')}
+                    {selectedBankSession.closed_at && <> &nbsp;·&nbsp; Fechamento: {new Date(selectedBankSession.closed_at).toLocaleString('pt-BR')}</>}
+                  </p>
+                </div>
+                <button onClick={() => setSelectedBankSession(null)} className="text-slate-400 hover:text-white"><XCircle size={24} /></button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {bankTxs.length === 0 ? (
+                  <p className="text-center text-slate-500 py-8">Nenhuma transação bancária nesta sessão.</p>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-800/80 text-slate-400 uppercase text-xs">
+                        <tr>
+                          <th className="px-4 py-3 text-left">Data/Hora</th>
+                          <th className="px-4 py-3 text-left">Método</th>
+                          <th className="px-4 py-3 text-right">Valor Bruto</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {bankTxs.map((tx: any) => (
+                          <tr key={tx.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{new Date(tx.created_at).toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2 py-1 rounded text-xs font-bold ${methodColor[tx.method] || 'bg-slate-700 text-slate-300'}`}>
+                                {methodLabel[tx.method] || tx.method}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-emerald-400">R$ {Number(tx.amount).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-4 border-t border-slate-800 grid grid-cols-4 gap-3 text-center text-sm bg-slate-900/50">
+                <div className="bg-slate-800/50 rounded-lg p-2">
+                  <p className="text-slate-500 text-xs mb-1">Total Transações</p>
+                  <p className="font-bold text-white">{bankTxs.length}</p>
+                </div>
+                <div className="bg-blue-500/10 rounded-lg p-2 border border-blue-500/20">
+                  <p className="text-blue-400/70 text-xs mb-1">Débito (Bruto)</p>
+                  <p className="font-bold text-blue-400">R$ {bankTxs.filter((t: any) => t.method === 'debit').reduce((a: number, t: any) => a + Number(t.amount), 0).toFixed(2)}</p>
+                </div>
+                <div className="bg-purple-500/10 rounded-lg p-2 border border-purple-500/20">
+                  <p className="text-purple-400/70 text-xs mb-1">Crédito (Bruto)</p>
+                  <p className="font-bold text-purple-400">R$ {bankTxs.filter((t: any) => ['credit', 'card'].includes(t.method)).reduce((a: number, t: any) => a + Number(t.amount), 0).toFixed(2)}</p>
+                </div>
+                <div className="bg-cyan-500/10 rounded-lg p-2 border border-cyan-500/20">
+                  <p className="text-cyan-400/70 text-xs mb-1">PIX (Bruto)</p>
+                  <p className="font-bold text-cyan-400">R$ {bankTxs.filter((t: any) => t.method === 'pix').reduce((a: number, t: any) => a + Number(t.amount), 0).toFixed(2)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* Order Details Modal */}
       {viewDetailsOrder && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -1859,10 +1999,43 @@ function History() {
               {(!viewDetailsOrder.items || viewDetailsOrder.items.length === 0) && <p className="text-center text-slate-500 py-4">Nenhum item neste pedido.</p>}
             </div>
             <div className="pt-4 border-t border-slate-800">
-              <div className="flex justify-between items-center mb-4 text-lg">
-                <span className="text-slate-400">Total</span>
-                <span className="font-bold text-emerald-400">R$ {totalViewDetails.toFixed(2)}</span>
-              </div>
+              {(() => {
+                const subtotal = totalViewDetails;
+                const discount = Math.min(subtotal, viewDetailsOrder.discount_cap || 0) * ((viewDetailsOrder.discount_percentage || 0) / 100);
+                const subtotalWithDiscount = subtotal - discount;
+                const taxa = subtotalWithDiscount * 0.1;
+                const totalOrder = subtotalWithDiscount + taxa;
+                const txTotal = (viewDetailsOrder.transactions || []).reduce((a: number, tx: any) => a + Number(tx.amount), 0);
+                
+                return (
+                  <div className="space-y-1 mb-4 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Subtotal:</span>
+                      <span className="text-slate-300">R$ {subtotal.toFixed(2)}</span>
+                    </div>
+                    {discount > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Desconto:</span>
+                        <span className="text-red-400">-R$ {discount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Taxa (10%):</span>
+                      <span className="text-amber-400">R$ {taxa.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 mt-2 border-t border-slate-700/50 text-lg">
+                      <span className="font-bold text-slate-200">Valor Total:</span>
+                      <span className="font-bold text-emerald-400">R$ {totalOrder.toFixed(2)}</span>
+                    </div>
+                    {txTotal > 0 && (
+                      <div className="flex justify-between items-center pt-1 font-bold text-base">
+                        <span className="text-blue-400">Total Pago:</span>
+                        <span className="text-blue-400">R$ {txTotal.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <button onClick={() => setViewDetailsOrder(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-colors">Fechar</button>
             </div>
           </div>

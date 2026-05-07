@@ -81,6 +81,7 @@ export default function Waiter() {
   const [coverFee, setCoverFee] = useState(0);
   const [settings, setSettings] = useState<any>({});
   const [splitEntries, setSplitEntries] = useState<Array<{ id: string; method: string; amount: number }>>([]);
+  const [isProcessingSplit, setIsProcessingSplit] = useState(false);
   const [splitInputAmount, setSplitInputAmount] = useState('');
 
   // Open Orders Panel State
@@ -611,7 +612,8 @@ export default function Waiter() {
   };
 
   const handleSplitPayment = async () => {
-    if (ordersToPay.length === 0 || splitEntries.length === 0) return;
+    if (ordersToPay.length === 0 || splitEntries.length === 0 || isProcessingSplit) return;
+    setIsProcessingSplit(true);
     try {
       const subtotal = ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
       const totalDiscount = ordersToPay.reduce((acc, order) => {
@@ -652,6 +654,8 @@ export default function Waiter() {
     } catch (err) {
       console.error(err);
       alert('Erro ao fechar conta. Tente novamente.');
+    } finally {
+      setIsProcessingSplit(false);
     }
   };
 
@@ -1824,9 +1828,10 @@ export default function Waiter() {
                     {/* Confirm button */}
                     <button
                       onClick={handleSplitPayment}
-                      disabled={splitEntries.length === 0 || remaining > 0.01}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-base"
+                      disabled={splitEntries.length === 0 || remaining > 0.01 || isProcessingSplit}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-base flex justify-center items-center gap-2"
                     >
+                      {isProcessingSplit ? <span className="animate-spin">⏳</span> : null}
                       Confirmar Pagamento
                     </button>
                   </div>
