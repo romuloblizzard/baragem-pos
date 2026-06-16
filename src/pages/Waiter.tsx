@@ -55,6 +55,12 @@ export default function Waiter() {
   const [transferResults, setTransferResults] = useState<any[]>([]);
   const [isTransferring, setIsTransferring] = useState(false);
 
+  // Stock Correction State
+  const [showStockCorrectionModal, setShowStockCorrectionModal] = useState(false);
+  const [selectedStockProduct, setSelectedStockProduct] = useState<any>(null);
+  const [newStockQuantity, setNewStockQuantity] = useState('');
+  const [originalCartProduct, setOriginalCartProduct] = useState<any>(null);
+
 
   // Customer Linking State
   const [customerForm, setCustomerForm] = useState({
@@ -108,6 +114,14 @@ export default function Waiter() {
     api.getSettings().then(setSettings);
     loadOpenOrders();
   }, []);
+
+  useEffect(() => {
+    if (view !== 'home') return;
+    const interval = setInterval(() => {
+      loadOpenOrders();
+    }, 12000); // 12 segundos
+    return () => clearInterval(interval);
+  }, [view]);
 
 
 
@@ -395,6 +409,28 @@ export default function Waiter() {
     // Check stock for composition
     if (product.type === 'composition') {
       if (intentQty > product.stock) {
+        // Find which ingredients are out of stock
+        const insufficientIngredients = (product.ingredients || []).filter((ing: any) => {
+          let neededQty = ing.quantity || 0;
+          if (ing.ingredient_category === 'Garrafa' && ing.ingredient_bottle_volume_ml) {
+            neededQty = neededQty / ing.ingredient_bottle_volume_ml;
+          }
+          const available = ing.ingredient_stock || 0;
+          return (intentQty * neededQty) > available;
+        });
+
+        if (insufficientIngredients.length > 0) {
+          const targetIng = insufficientIngredients[0];
+          const ingProduct = products.find((p: any) => p.id === targetIng.ingredient_id);
+          if (ingProduct) {
+            setOriginalCartProduct(product);
+            setSelectedStockProduct(ingProduct);
+            setNewStockQuantity('');
+            setShowStockCorrectionModal(true);
+            return;
+          }
+        }
+
         alert('Produto esgotado (ingredientes insuficientes)');
         return;
       }
@@ -406,11 +442,10 @@ export default function Waiter() {
       }
 
       if (intentQty > available) {
-        if (product.category_name === 'Garrafa' && available === 0 && product.stock > 0) {
-          alert(`Você tem apenas garrafa(s) aberta(s) de ${product.name}. Venda direta bloqueada.`);
-        } else {
-          alert('Quantidade indisponível no estoque!');
-        }
+        setOriginalCartProduct(null);
+        setSelectedStockProduct(product);
+        setNewStockQuantity('');
+        setShowStockCorrectionModal(true);
         return;
       }
     }
@@ -422,6 +457,48 @@ export default function Waiter() {
       }
       return [...prev, { ...product, quantity: 1 }];
     });
+  };
+
+  const handleConfirmStockCorrection = async () => {
+    if (!selectedStockProduct) return;
+    const qty = parseFloat(newStockQuantity);
+    if (isNaN(qty) || qty < 0) {
+      alert('Por favor, insira uma quantidade válida.');
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      await api.quickUpdateStock(selectedStockProduct.id, qty);
+      
+      // Reload products list
+      const updatedProducts = await api.getProducts();
+      setProducts(updatedProducts);
+      
+      // Close modal
+      setShowStockCorrectionModal(false);
+      setNewStockQuantity('');
+      
+      // If there was an original composition product being added
+      if (originalCartProduct) {
+        const refreshedOriginal = updatedProducts.find((p: any) => p.id === originalCartProduct.id);
+        setOriginalCartProduct(null);
+        setSelectedStockProduct(null);
+        if (refreshedOriginal) {
+          addToCart(refreshedOriginal);
+        }
+      } else {
+        const refreshedProduct = updatedProducts.find((p: any) => p.id === selectedStockProduct.id);
+        setSelectedStockProduct(null);
+        if (refreshedProduct) {
+          addToCart(refreshedProduct);
+        }
+      }
+    } catch (err: any) {
+      alert('Erro ao atualizar estoque: ' + (err.message || err));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const removeFromCart = (productId: number) => {
@@ -498,9 +575,10 @@ export default function Waiter() {
       await api.addOrderItems(currentOrder.id, itemsToInsert);
 
       setCart([]);
-      // Refresh order and products
-      const updated = await api.getOrder(pulseira);
-      setCurrentOrder(updated);
+      setCurrentOrder(null);
+      setPulseira('');
+      setView('home');
+
       const prods = await api.getProducts();
       setProducts(prods);
       alert('Pedido enviado!');
@@ -2059,6 +2137,72 @@ export default function Waiter() {
               {swapFilteredProducts.length === 0 && (
                 <p className="text-center text-slate-500 py-4">Nenhum produto encontrado...</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Stock Correction Modal */}
+      {showStockCorrectionModal && selectedStockProduct && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-[60] p-4">
+          <div className="bg-slate-900 border border-amber-500/30 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in duration-200">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">⚠️</span>
+                <div>
+                  <h3 className="text-lg font-bold text-amber-400 leading-tight">
+                    {selectedStockProduct.name}
+                  </h3>
+                  <p className="text-sm text-slate-400">Estoque Baixo</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowStockCorrectionModal(false);
+                  setSelectedStockProduct(null);
+                  setOriginalCartProduct(null);
+                }} 
+                className="text-slate-500 hover:text-white"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="bg-slate-950/60 rounded-2xl p-4 border border-slate-800/80 mb-6 text-center">
+              <p className="text-sm text-slate-400">O sistema registra atualmente:</p>
+              <p className="text-2xl font-bold text-slate-100 mt-1">
+                {selectedStockProduct.stock} {selectedStockProduct.unit || 'un'}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-amber-500/5 border border-amber-500/10 rounded-2xl p-4">
+                <label className="block text-sm font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
+                  <span>📦</span> Tem mercadoria no estoque?
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    pattern="[0-9]*"
+                    inputMode="decimal"
+                    placeholder="Quantidade"
+                    value={newStockQuantity}
+                    onChange={(e) => setNewStockQuantity(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-bold text-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none placeholder:text-slate-700"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleConfirmStockCorrection}
+                    disabled={isLoading}
+                    className="bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-bold px-6 py-3 rounded-xl transition-all disabled:opacity-50"
+                  >
+                    {isLoading ? '...' : 'Confirmar'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-center text-xs text-slate-500 italic pt-2">
+                * Se não tiver mercadoria no estoque, feche este aviso para cancelar a venda.
+              </div>
             </div>
           </div>
         </div>

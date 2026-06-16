@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Menu from './pages/Menu';
 import DigitalMenu from './pages/DigitalMenu';
 import MenuConfig from './pages/MenuConfig';
+import PrintQueue from './pages/PrintQueue';
 import { api } from './services/api';
 
 export default function App() {
@@ -120,6 +121,7 @@ export default function App() {
           }
         />
         <Route path="/waiter/*" element={<Waiter />} />
+        <Route path="/print" element={<PrintQueue />} />
         <Route path="/menu-config" element={<ProtectedAdminRoute><MenuConfig /></ProtectedAdminRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

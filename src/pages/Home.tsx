@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Beer, ClipboardList, LogOut, Menu as MenuIcon } from 'lucide-react';
+import { Beer, ClipboardList, LogOut, Menu as MenuIcon, Printer } from 'lucide-react';
 
 interface HomeProps {
   onLogout: () => void;
@@ -49,6 +49,19 @@ export default function Home({ onLogout }: HomeProps) {
             <div className="text-left">
               <h3 className="text-lg font-semibold text-slate-200">Painel do Garçom</h3>
               <p className="text-sm text-slate-500">Novo pedido, lançar itens</p>
+            </div>
+          </Link>
+
+          <Link 
+            to="/print"
+            className="group relative flex items-center gap-4 p-6 rounded-2xl bg-slate-900/50 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/50 transition-all duration-300"
+          >
+            <div className="p-4 rounded-xl bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform">
+              <Printer size={32} />
+            </div>
+            <div className="text-left">
+              <h3 className="text-lg font-semibold text-slate-200">Fila de Impressão</h3>
+              <p className="text-sm text-slate-500">Impressão automática do bar</p>
             </div>
           </Link>
         </div>

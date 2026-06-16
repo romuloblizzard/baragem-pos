@@ -610,7 +610,7 @@ export const api = {
     return order;
   },
   fixPulseira: async (pulseira: string, ownerType: 'employee' | 'customer', ownerId: string | number) => {
-    const table = ownerType === 'employees' ? 'employees' : 'customers';
+    const table = ownerType === 'employee' ? 'employees' : 'customers';
     const { error } = await supabase.from(table).update({ fixed_pulseira: pulseira }).eq('id', ownerId);
     if (error) {
       if (error.code === '23505') throw new Error('Esta pulseira já está fixada para outra pessoa.');
@@ -619,7 +619,7 @@ export const api = {
     return { success: true };
   },
   unfixPulseira: async (ownerType: 'employee' | 'customer', ownerId: string | number) => {
-    const table = ownerType === 'employees' ? 'employees' : 'customers';
+    const table = ownerType === 'employee' ? 'employees' : 'customers';
     const { error } = await supabase.from(table).update({ fixed_pulseira: null }).eq('id', ownerId);
     if (error) throw error;
     return { success: true };
@@ -1389,5 +1389,13 @@ export const api = {
     if (cancelError) throw cancelError;
 
     return { success: true, destPulseira: padded, destOrderId: destOrder.id };
+  },
+
+  // Quick stock correction from waiter screen
+  quickUpdateStock: async (productId: number, newStock: number) => {
+    const { data, error } = await supabase
+      .rpc('quick_update_stock', { p_product_id: productId, p_new_stock: newStock });
+    if (error) throw error;
+    return data;
   },
 };
