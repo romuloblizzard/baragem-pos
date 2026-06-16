@@ -28,6 +28,45 @@ export default function PrintQueue() {
     const interval = setInterval(async () => {
       if (isPrintingRef.current) return;
       try {
+        // 1. Verifica se há COMPROVANTES pendentes (comandas pagas)
+        const { data: receiptData, error: receiptError } = await supabase
+          .from('orders')
+          .select('*, items:order_items(*, products(name))')
+          .eq('status', 'paid')
+          .eq('receipt_printed', false)
+          .order('closed_at', { ascending: true })
+          .limit(1);
+
+        if (receiptError) throw receiptError;
+
+        if (receiptData && receiptData.length > 0) {
+          const order = receiptData[0];
+          isPrintingRef.current = true;
+          setIsPrinting(true);
+          setStatus(`Imprimindo Comprovante: Pulseira ${order.pulseira}...`);
+          addLog(`🧾 Novo comprovante: Pulseira ${order.pulseira}`, 'info');
+
+          // Dispara impressão
+          await printItem({ type: 'receipt', data: order });
+
+          // Marca como impresso no banco
+          const { error: updateError } = await supabase
+            .from('orders')
+            .update({ receipt_printed: true })
+            .eq('id', order.id);
+
+          if (updateError) throw updateError;
+
+          setTotalPrinted(prev => prev + 1);
+          addLog(`✅ Comprovante #${order.id} impresso com sucesso!`, 'success');
+          setStatus('Monitorando novos pedidos...');
+          
+          isPrintingRef.current = false;
+          setIsPrinting(false);
+          return; // Para não buscar tickets na mesma passada
+        }
+
+        // 2. Verifica se há TICKETS DE PRODUÇÃO pendentes
         const { data, error } = await supabase
           .from('order_items')
           .select(`
@@ -49,10 +88,10 @@ export default function PrintQueue() {
           isPrintingRef.current = true;
           setIsPrinting(true);
           setStatus(`Imprimindo: ${parseFloat(item.quantity)}x ${(item.products as any)?.name} (Pulseira ${(item.orders as any)?.pulseira})...`);
-          addLog(`📋 Novo item: ${parseFloat(item.quantity)}x ${(item.products as any)?.name} - Pulseira ${(item.orders as any)?.pulseira}`, 'info');
+          addLog(`📋 Novo ticket: ${parseFloat(item.quantity)}x ${(item.products as any)?.name} - Pulseira ${(item.orders as any)?.pulseira}`, 'info');
 
           // Dispara impressão
-          await printItem(item);
+          await printItem({ type: 'ticket', data: item });
 
           // Marca como impresso no banco
           const { error: updateError } = await supabase
@@ -63,7 +102,7 @@ export default function PrintQueue() {
           if (updateError) throw updateError;
 
           setTotalPrinted(prev => prev + 1);
-          addLog(`✅ Item #${item.id} impresso com sucesso!`, 'success');
+          addLog(`✅ Ticket #${item.id} impresso com sucesso!`, 'success');
           setStatus('Monitorando novos pedidos...');
         }
       } catch (err: any) {
@@ -78,9 +117,9 @@ export default function PrintQueue() {
     return () => clearInterval(interval);
   }, []);
 
-  const printItem = (item: any): Promise<void> => {
+  const printItem = (payload: any): Promise<void> => {
     return new Promise<void>((resolve) => {
-      setActiveItemToPrint(item);
+      setActiveItemToPrint(payload);
 
       // Aguarda React renderizar o conteúdo antes de imprimir
       setTimeout(() => {
@@ -167,7 +206,7 @@ export default function PrintQueue() {
       `}} />
 
       {/* Conteiner de Impressão (invisível na tela, visível apenas na impressão) */}
-      {activeItemToPrint && (
+      {activeItemToPrint?.type === 'ticket' && (
         <div id="print-section" style={{ display: 'none' }}>
           <div className="c-center c-header c-bold">
             BARAGEM<br/>TICKET DE PRODUÇÃO
@@ -175,35 +214,79 @@ export default function PrintQueue() {
 
           <div className="c-center">
             <div style={{ fontSize: '11px', marginBottom: '2px' }}>PULSEIRA / COMANDA:</div>
-            <div className="c-pulseira">#{activeItemToPrint.orders?.pulseira || '0000'}</div>
-            {activeItemToPrint.orders?.customer_name && (
+            <div className="c-pulseira">#{activeItemToPrint.data.orders?.pulseira || '0000'}</div>
+            {activeItemToPrint.data.orders?.customer_name && (
               <div className="c-bold" style={{ marginTop: '4px' }}>
-                {activeItemToPrint.orders.customer_name}
+                {activeItemToPrint.data.orders.customer_name}
               </div>
             )}
           </div>
 
           <div className="c-item c-center">
-            {parseFloat(activeItemToPrint.quantity)}x {activeItemToPrint.products?.name}
+            {parseFloat(activeItemToPrint.data.quantity)}x {activeItemToPrint.data.products?.name}
           </div>
 
-          {activeItemToPrint.notes && (
+          {activeItemToPrint.data.notes && (
             <div className="c-notes">
-              OBS: {activeItemToPrint.notes}
+              OBS: {activeItemToPrint.data.notes}
             </div>
           )}
 
-          {activeItemToPrint.products?.categories?.name && (
+          {activeItemToPrint.data.products?.categories?.name && (
             <div className="c-section">
-              Setor: <strong>{activeItemToPrint.products.categories.name}</strong>
+              Setor: <strong>{activeItemToPrint.data.products.categories.name}</strong>
             </div>
           )}
 
           <div className="c-section c-center">
-            {new Date(activeItemToPrint.created_at || Date.now()).toLocaleDateString('pt-BR')} -{' '}
-            {new Date(activeItemToPrint.created_at || Date.now()).toLocaleTimeString('pt-BR', {
+            {new Date(activeItemToPrint.data.created_at || Date.now()).toLocaleDateString('pt-BR')} -{' '}
+            {new Date(activeItemToPrint.data.created_at || Date.now()).toLocaleTimeString('pt-BR', {
               hour: '2-digit', minute: '2-digit'
             })}
+          </div>
+        </div>
+      )}
+
+      {activeItemToPrint?.type === 'receipt' && (
+        <div id="print-section" style={{ display: 'none' }}>
+          <div className="c-center c-header c-bold" style={{ fontSize: '18px' }}>
+            BARAGEM
+          </div>
+          <div className="c-center" style={{ fontSize: '11px', marginBottom: '8px' }}>
+            Comprovante de Consumo<br/>
+            {new Date(activeItemToPrint.data.closed_at || Date.now()).toLocaleString('pt-BR')}
+          </div>
+
+          <div className="c-section" style={{ marginBottom: '8px' }}>
+            <strong>Pulseira:</strong> {activeItemToPrint.data.pulseira || '0000'}<br/>
+            <strong>Cliente:</strong> {activeItemToPrint.data.customer_name || 'Não identificado'}
+          </div>
+
+          <table style={{ width: '100%', fontSize: '12px', marginBottom: '8px' }}>
+            <tbody>
+              {activeItemToPrint.data.items?.map((item: any) => (
+                <tr key={item.id}>
+                  <td style={{ padding: '2px 0' }}>{parseFloat(item.quantity)}x</td>
+                  <td style={{ padding: '2px 0' }}>{item.products?.name}</td>
+                  <td style={{ textAlign: 'right', padding: '2px 0' }}>
+                    R$ {(item.quantity * item.price_at_time).toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="c-section" style={{ paddingTop: '8px', borderTop: '1px dashed #000' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '14px' }}>
+              <span>TOTAL PAGO</span>
+              <span>
+                R$ {activeItemToPrint.data.items?.reduce((sum: number, item: any) => sum + (item.quantity * item.price_at_time), 0).toFixed(2) || '0.00'}
+              </span>
+            </div>
+          </div>
+
+          <div className="c-center" style={{ marginTop: '16px', fontSize: '11px' }}>
+            Obrigado pela preferência!
           </div>
         </div>
       )}

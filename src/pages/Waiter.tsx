@@ -591,9 +591,6 @@ export default function Waiter() {
   };
 
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
     const subtotal = ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
     const serviceValue = includeServiceFee ? subtotal * 0.1 : 0;
     const total = subtotal + serviceValue + coverFee;
@@ -678,15 +675,31 @@ export default function Waiter() {
             <hr class="dashed">
 
             <div class="footer">${settings.receipt_footer || 'Obrigado pela preferencia!'}</div>
-            <script>
-              window.onload = function() { window.print(); }
-            </script>
           </body>
         </html>
       `;
 
-    printWindow.document.write(html);
-    printWindow.document.close();
+    // Usa iframe oculto — sem pop-up bloqueado
+    let frame = document.getElementById('waiter-print-frame') as HTMLIFrameElement | null;
+    if (!frame) {
+      frame = document.createElement('iframe');
+      frame.id = 'waiter-print-frame';
+      frame.style.cssText = 'display:none;position:fixed;width:0;height:0;border:0;';
+      document.body.appendChild(frame);
+    }
+    const fdoc = frame.contentWindow!.document;
+    fdoc.open();
+    fdoc.write(html);
+    fdoc.close();
+    frame.onload = () => {
+      try {
+        frame!.contentWindow!.focus();
+        frame!.contentWindow!.print();
+      } catch (e) {
+        console.warn('Erro ao imprimir:', e);
+      }
+      frame!.onload = null;
+    };
   };
 
   const handleSplitPayment = async () => {
@@ -719,7 +732,9 @@ export default function Waiter() {
         await api.paySplitOrder(order.id, orderEntries);
       }
 
-      alert(`Conta(s) fechada(s) com sucesso! Total: R$ ${finalTotal.toFixed(2)}`);
+      // Imprimir automaticamente ao confirmar
+      handlePrint();
+
       setIsPaymentModalOpen(false);
       setSplitEntries([]);
       setSplitInputAmount('');

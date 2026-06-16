@@ -709,7 +709,8 @@ export const api = {
 
     const { error: updError } = await supabase.from('orders').update({
       status: 'paid',
-      closed_at: new Date().toISOString()
+      closed_at: new Date().toISOString(),
+      receipt_printed: false
     }).eq('id', orderId);
     if (updError) throw updError;
 
@@ -733,7 +734,8 @@ export const api = {
     }
     const { error: updError } = await supabase.from('orders').update({
       status: 'paid',
-      closed_at: new Date().toISOString()
+      closed_at: new Date().toISOString(),
+      receipt_printed: false
     }).eq('id', orderId);
     if (updError) throw updError;
     return { success: true };
