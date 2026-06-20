@@ -1529,8 +1529,8 @@ export default function Waiter() {
           </div>
 
           <button
-            onClick={submitOrder}
-            disabled={isSubmittingOrder || cart.length === 0}
+            onClick={() => setShowCartConfirmModal(true)}
+              disabled={isSubmittingOrder || cart.length === 0}
             className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:opacity-70 text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-95 transition-all shrink-0 flex justify-center items-center gap-2"
           >
             {isSubmittingOrder ? <span className="animate-spin">⏳</span> : 'Confirmar Pedido'}
