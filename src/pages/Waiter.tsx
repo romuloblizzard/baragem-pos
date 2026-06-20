@@ -633,6 +633,7 @@ export default function Waiter() {
             ${settings.establishment_phone ? `<p>Tel: ${settings.establishment_phone}</p>` : ''}
             ${settings.establishment_cnpj ? `<p>CNPJ: ${settings.establishment_cnpj}</p>` : ''}
             <p>${new Date().toLocaleString('pt-BR')}</p>
+            <p style="text-transform: uppercase; font-size: 10pt;">ATENDENTE: ${localStorage.getItem('pos_employee_name') || 'Desconhecido'}</p>
             <hr class="dashed">
 
             ${ordersToPay.map((order: any) => `
@@ -2226,3 +2227,4 @@ export default function Waiter() {
     </div>
   );
 }
+

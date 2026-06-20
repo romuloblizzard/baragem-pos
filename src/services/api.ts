@@ -602,8 +602,9 @@ export const api = {
       console.log("No fixed owner for employee range pulseira");
     }
 
-    const employee_id = localStorage.getItem('pos_employee_id');
-    const enrichedData = { ...finalData, employee_id: employee_id || null };
+      const employee_id = localStorage.getItem('pos_employee_id');
+      const attendant_name = localStorage.getItem('pos_employee_name');
+      const enrichedData = { ...finalData, employee_id: employee_id || null, attendant_name: attendant_name || 'Desconhecido' };
 
     const { data: order, error } = await supabase.from('orders').insert(enrichedData).select().single();
     if (error) throw error;
@@ -644,15 +645,18 @@ export const api = {
       const finalPrice = item.price_at_time !== undefined ? item.price_at_time : product.price;
       const finalCost = item.cost_at_time !== undefined ? item.cost_at_time : (product.cost_price || 0);
 
-      const { data: insertedItem, error: itemError } = await supabase
-        .from('order_items')
-        .insert({
-          order_id: orderId,
-          product_id: item.id,
-          quantity: item.quantity,
-          price_at_time: finalPrice,
-          cost_at_time: finalCost
-        })
+        const attendant_name = localStorage.getItem('pos_employee_name');
+
+        const { data: insertedItem, error: itemError } = await supabase
+          .from('order_items')
+          .insert({
+            order_id: orderId,
+            product_id: item.id,
+            quantity: item.quantity,
+            price_at_time: finalPrice,
+            cost_at_time: finalCost,
+            attendant_name: attendant_name || 'Desconhecido'
+          })
         .select()
         .single();
 

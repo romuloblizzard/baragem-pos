@@ -11,13 +11,13 @@ import PrintQueue from './pages/PrintQueue';
 import { api } from './services/api';
 
 export default function App() {
-  const [userRole, setUserRole] = useState<'admin' | 'waiter' | null>(null);
+  const [userRole, setUserRole] = useState<'admin' | 'waiter' | 'employee' | null>(null);
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [requiresForceAuthPin, setRequiresForceAuthPin] = useState<string | null>(null);
 
   useEffect(() => {
-    const role = localStorage.getItem('pos_role') as 'admin' | 'waiter' | null;
+    const role = localStorage.getItem('pos_role') as 'admin' | 'waiter' | 'employee' | null;
     const loginTime = localStorage.getItem('pos_login_time');
     const employeeId = localStorage.getItem('pos_employee_id');
     const deviceId = localStorage.getItem('pos_device_id');
@@ -141,3 +141,4 @@ export default function App() {
     </BrowserRouter>
   );
 }
+

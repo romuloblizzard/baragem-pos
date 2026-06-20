@@ -70,13 +70,14 @@ export default function PrintQueue() {
         const { data, error } = await supabase
           .from('order_items')
           .select(`
-            id,
-            quantity,
-            notes,
-            created_at,
-            products(name, categories(name)),
-            orders(pulseira, customer_name)
-          `)
+              id,
+              quantity,
+              notes,
+              created_at,
+              attendant_name,
+              products(name, categories(name)),
+              orders(pulseira, customer_name)
+            `)
           .eq('printed', false)
           .order('id', { ascending: true })
           .limit(1);
@@ -152,6 +153,9 @@ export default function PrintQueue() {
           }
           #print-section, #print-section * {
             visibility: visible !important;
+            color: #000 !important;
+            font-weight: 800 !important;
+            -webkit-print-color-adjust: exact !important;
           }
           #print-section {
             position: fixed !important;
@@ -220,6 +224,9 @@ export default function PrintQueue() {
                 {activeItemToPrint.data.orders.customer_name}
               </div>
             )}
+            <div style={{ fontSize: '12px', marginTop: '4px', textTransform: 'uppercase', fontWeight: '900', borderTop: '1px dashed #000', paddingTop: '4px' }}>
+              ATENDENTE: {activeItemToPrint.data.attendant_name || 'Desconhecido'}
+            </div>
           </div>
 
           <div className="c-item c-center">
@@ -259,7 +266,8 @@ export default function PrintQueue() {
 
           <div className="c-section" style={{ marginBottom: '8px' }}>
             <strong>Pulseira:</strong> {activeItemToPrint.data.pulseira || '0000'}<br/>
-            <strong>Cliente:</strong> {activeItemToPrint.data.customer_name || 'Não identificado'}
+            <strong>Cliente:</strong> {activeItemToPrint.data.customer_name || 'Nao identificado'}<br/>
+            <strong>Atendente:</strong> {activeItemToPrint.data.attendant_name || 'Desconhecido'}
           </div>
 
           <table style={{ width: '100%', fontSize: '12px', marginBottom: '8px' }}>

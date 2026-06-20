@@ -422,8 +422,10 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
   const [includeServiceFee, setIncludeServiceFee] = useState(true);
   const [coverFee, setCoverFee] = useState(0);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [settings, setSettings] = useState<any>({});
 
   useEffect(() => {
+    api.getSettings().then(data => data && setSettings(data));
     loadOrders();
     const interval = setInterval(loadOrders, 10000);
     return () => clearInterval(interval);
@@ -564,7 +566,7 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
                     // Aplica desconto (regra idêntica ao Waiter)
                     const discount = Math.min(subtotal, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100);
                     const subtotalWithDiscount = subtotal - discount;
-                    const taxa = subtotalWithDiscount * 0.1; // Taxa de 10%
+                    const taxa = subtotalWithDiscount * (parseFloat(settings?.service_fee_pct || '10') / 100); // Taxa de 10%
                     const totalOrder = subtotalWithDiscount + taxa;
                     const totalPaid = (order.transactions || []).reduce((acc: number, tx: any) => acc + tx.amount, 0);
 
@@ -581,7 +583,7 @@ function Dashboard({ stats, period, setPeriod }: { stats: any, period: 'daily' |
                           </div>
                         )}
                         <div className="flex justify-between items-center text-sm">
-                          <span className="text-slate-400">Taxa (10%)</span>
+                          <span className="text-slate-400">Taxa ({settings?.service_fee_pct || '10'}%)</span>
                           <span className="text-amber-400">R$ {taxa.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between items-center pt-1 mt-1 border-t border-slate-700/50">
@@ -1358,7 +1360,7 @@ function History() {
                   <p className="text-xl font-bold text-white">R$ {cashierTotals.gross.toFixed(2)}</p>
                 </div>
                 <div className="bg-slate-800/50 border border-amber-900/40 rounded-xl p-4">
-                  <p className="text-xs text-slate-400 mb-1">Taxa (10%)</p>
+                  <p className="text-xs text-slate-400 mb-1">Taxa ({settings?.service_fee_pct || '10'}%)</p>
                   <p className="text-xl font-bold text-amber-400">R$ {cashierTotals.taxa.toFixed(2)}</p>
                 </div>
                 <div className="bg-slate-800/50 border border-red-900/40 rounded-xl p-4">
@@ -1381,7 +1383,7 @@ function History() {
                       <th className="px-4 py-3 text-left">Fechamento</th>
                       <th className="px-4 py-3 text-center">Status</th>
                       <th className="px-4 py-3 text-right">Produtos Vendidos</th>
-                      <th className="px-4 py-3 text-right">Taxa (10%)</th>
+                      <th className="px-4 py-3 text-right">Taxa ({settings?.service_fee_pct || '10'}%)</th>
                       <th className="px-4 py-3 text-right">CMV</th>
                       <th className="px-4 py-3 text-right font-bold text-slate-300">Valor Líquido</th>
                     </tr>
@@ -1770,7 +1772,7 @@ function History() {
                   const orderSubtotal = order.items?.reduce((acc: number, i: any) => acc + (i.price_at_time * i.quantity), 0) || 0;
                   const orderDiscount = Math.min(orderSubtotal, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100);
                   const orderSubtotalWithDiscount = orderSubtotal - orderDiscount;
-                  const taxaEsperada = orderSubtotalWithDiscount * 0.1;
+                  const taxaEsperada = orderSubtotalWithDiscount * (parseFloat(settings?.service_fee_pct || '10') / 100);
                   const totalEsperado = orderSubtotalWithDiscount + taxaEsperada;
                   
                   const orderTxs = txByOrder[order.id] || [];
@@ -1797,7 +1799,7 @@ function History() {
                             </div>
                           )}
                           <div className="flex justify-between gap-4">
-                            <span className="text-slate-400">Taxa (10%):</span>
+                            <span className="text-slate-400">Taxa ({settings?.service_fee_pct || '10'}%):</span>
                             <span className="text-amber-400">R$ {taxaEsperada.toFixed(2)}</span>
                           </div>
                           <div className="flex justify-between gap-4 pt-1 border-t border-slate-700 font-bold">
@@ -2026,7 +2028,7 @@ function History() {
                 const subtotal = totalViewDetails;
                 const discount = Math.min(subtotal, viewDetailsOrder.discount_cap || 0) * ((viewDetailsOrder.discount_percentage || 0) / 100);
                 const subtotalWithDiscount = subtotal - discount;
-                const taxa = subtotalWithDiscount * 0.1;
+                const taxa = subtotalWithDiscount * (parseFloat(settings?.service_fee_pct || '10') / 100);
                 const totalOrder = subtotalWithDiscount + taxa;
                 const txTotal = (viewDetailsOrder.transactions || []).reduce((a: number, tx: any) => a + Number(tx.amount), 0);
                 
@@ -2043,7 +2045,7 @@ function History() {
                       </div>
                     )}
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Taxa (10%):</span>
+                      <span className="text-slate-400">Taxa ({settings?.service_fee_pct || '10'}%):</span>
                       <span className="text-amber-400">R$ {taxa.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between items-center pt-2 mt-2 border-t border-slate-700/50 text-lg">
@@ -2302,7 +2304,7 @@ function Team() {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const role = formData.get('role') as string;
-    const isLoginRole = role === 'admin' || role === 'waiter';
+    const isLoginRole = role === 'admin' || role === 'waiter' || role === 'employee';
 
     // Auto-generate a random 6 digit PIN if not provided
     let pin = isLoginRole ? formData.get('pin') as string : null;
@@ -2426,7 +2428,7 @@ function Team() {
                     'bg-slate-700/50 text-slate-400'
                   }`}>
                     {emp.role === 'admin' ? 'Gerente' : 
-                     emp.role === 'waiter' ? 'Cargo' :
+                     emp.role === 'waiter' ? 'Garçom' :
                      emp.role === 'employee' ? 'Funcionário' : emp.role}
                   </span>
                 </td>
@@ -4459,6 +4461,8 @@ function Settings() {
     fee_debit: '0',
     fee_credit: '0',
     fee_pix: '0',
+    service_fee_pct: '10',
+    cover_fee: '0',
   });
   const [loading, setLoading] = useState(false);
 
@@ -4611,6 +4615,45 @@ function Settings() {
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-4 pr-8 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-700 pt-4">
+            <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-3">Taxas ao Cliente</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Taxa de Serviço (%)</label>
+                <div className="relative">
+                  <input
+                    name="service_fee_pct"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={settings.service_fee_pct}
+                    onChange={handleChange}
+                    placeholder="10"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-4 pr-8 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">%</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Cover Artístico (R$)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">R$</span>
+                  <input
+                    name="cover_fee"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={settings.cover_fee}
+                    onChange={handleChange}
+                    placeholder="0,00"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
                 </div>
               </div>
             </div>
@@ -5234,3 +5277,5 @@ function Purchases() {
     </div>
   );
 }
+
+
