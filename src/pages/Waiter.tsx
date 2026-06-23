@@ -1191,19 +1191,9 @@ export default function Waiter() {
             </button>
           </div>
           <div className="flex gap-2">
-            {currentTotal <= 0 ? (
-              <button
-                onClick={handleCloseZeroOrder}
-                disabled={isLoading}
-                className="flex-1 py-3 bg-red-900/40 hover:bg-red-800/60 text-red-400 hover:text-red-300 rounded-lg text-sm font-bold transition-colors border border-red-800/50 hover:border-red-600 disabled:opacity-50"
-              >
-                🚫 Encerrar Sem Cobrança
-              </button>
-            ) : (
-              <button onClick={openPaymentModal} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-slate-600">
-                Fechar Conta
-              </button>
-            )}
+            <button onClick={openPaymentModal} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-slate-600">
+              Fechar Conta
+            </button>
             <button
               onClick={() => { setMergePulseira(''); setIsMergeModalOpen(true); }}
               className="px-4 py-3 bg-slate-800 hover:bg-amber-500/20 text-amber-400 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-amber-500/50"
@@ -2043,6 +2033,35 @@ export default function Waiter() {
                 );
               })()}
 
+              {/* Encerrar sem cobranca - so aparece se total = R$0 */}
+              {ordersToPay.length > 0 && ordersToPay.every((o: any) => (o.items || []).reduce((s: number, i: any) => s + (i.price_at_time * i.quantity), 0) === 0) && (
+                <button
+                  onClick={async () => {
+                    if (!currentOrder) return;
+                    if (!window.confirm('Encerrar a comanda #' + pulseira + ' sem cobranca? Ela nao possui consumo registrado.')) return;
+                    setIsLoading(true);
+                    try {
+                      await api.closeZeroOrder(currentOrder.id);
+                      setIsPaymentModalOpen(false);
+                      setSplitEntries([]);
+                      setSplitInputAmount('');
+                      setOrdersToPay([]);
+                      setView('home');
+                      setPulseira('');
+                      setCurrentOrder(null);
+                      loadOpenOrders();
+                    } catch (err: any) {
+                      alert(err.message || 'Erro ao encerrar comanda.');
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }}
+                  disabled={isLoading}
+                  className="w-full py-2.5 bg-red-900/30 hover:bg-red-800/50 text-red-400 hover:text-red-300 rounded-xl text-sm font-bold transition-colors border border-red-800/40 hover:border-red-600 disabled:opacity-50"
+                >
+                  Encerrar Sem Cobranca
+                </button>
+              )}
               <button
                 onClick={() => { setIsPaymentModalOpen(false); setSplitEntries([]); setSplitInputAmount(''); }}
                 className="w-full py-2 text-slate-400 hover:text-white transition-colors"
