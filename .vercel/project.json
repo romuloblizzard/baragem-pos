@@ -1,0 +1,16 @@
+{
+  "projectId": "prj_6G8mPLiP6w5Oh1viAAdnyVlN1YZo",
+  "orgId": "team_wcOEcJK3STgkW4tLIzyn6E1q",
+  "projectName": "baragem-pos",
+  "settings": {
+    "createdAt": 1781568062319,
+    "framework": "vite",
+    "devCommand": null,
+    "installCommand": null,
+    "buildCommand": null,
+    "outputDirectory": null,
+    "rootDirectory": null,
+    "directoryListing": false,
+    "nodeVersion": "24.x"
+  }
+}
