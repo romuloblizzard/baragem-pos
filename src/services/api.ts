@@ -745,6 +745,18 @@ export const api = {
     return { success: true };
   },
 
+  // Encerra uma comanda de valor zero sem pagamento (status: cancelled)
+  closeZeroOrder: async (orderId: number) => {
+    const { data: order } = await supabase.from('orders').select('status, id').eq('id', orderId).single();
+    if (!order || order.status !== 'open') throw new Error('Comanda não encontrada ou já encerrada.');
+    const { error } = await supabase.from('orders').update({
+      status: 'cancelled',
+      closed_at: new Date().toISOString(),
+    }).eq('id', orderId);
+    if (error) throw error;
+    return { success: true };
+  },
+
   deleteTransaction: async (transactionId: number) => {
     const { error } = await supabase.from('transactions').delete().eq('id', transactionId);
     if (error) throw error;

@@ -763,6 +763,24 @@ export default function Waiter() {
     }
   };
 
+  // Encerra comanda sem cobrança (apenas quando total = R$ 0,00)
+  const handleCloseZeroOrder = async () => {
+    if (!currentOrder) return;
+    if (!window.confirm(`Encerrar a comanda #${pulseira} sem cobrança? Ela não possui consumo.`)) return;
+    setIsLoading(true);
+    try {
+      await api.closeZeroOrder(currentOrder.id);
+      setView('home');
+      setPulseira('');
+      setCurrentOrder(null);
+      loadOpenOrders();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao encerrar comanda.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const addOrderToPayment = async () => {
     if (!extraPulseira) return;
     try {
@@ -1104,7 +1122,7 @@ export default function Waiter() {
     const n = name.toUpperCase();
     // Mapear por nome limpo (sem emojis - já foram retirados do banco)
     if (n.startsWith('COMIDA')) return isSelected ? 'bg-yellow-500 text-yellow-950 font-bold shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/20';
-    if (n.startsWith('BEBIDAS (ALC') || n === 'BEBIDAS (ALCOOL)') return isSelected ? 'bg-emerald-500 text-emerald-950 font-bold shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20';
+    if (n.startsWith('BEBIDAS (ALC') || n === 'BEBIDAS (ALCOOL)') return isSelected ? 'bg-emerald-500 text-emerald-950 font-bold shadow-[0_0_15px_rgba(10,185,129,0.3)]' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20';
     if (n.startsWith('BEBIDAS (SEM') || n === 'BEBIDAS (SEM ALCOOL)') return isSelected ? 'bg-sky-500 text-sky-950 font-bold shadow-[0_0_15px_rgba(14,165,233,0.3)]' : 'bg-sky-500/10 text-sky-400 border border-sky-500/30 hover:bg-sky-500/20';
     if (n.startsWith('CAIPIRIN')) return isSelected ? 'bg-lime-500 text-lime-950 font-bold shadow-[0_0_15px_rgba(132,204,22,0.3)]' : 'bg-lime-500/10 text-lime-400 border border-lime-500/30 hover:bg-lime-500/20';
     if (n.startsWith('DRINK') || n.startsWith('DOSE')) return isSelected ? 'bg-orange-500 text-orange-950 font-bold shadow-[0_0_15px_rgba(249,115,22,0.3)]' : 'bg-orange-500/10 text-orange-400 border border-orange-500/30 hover:bg-orange-500/20';
@@ -1173,9 +1191,19 @@ export default function Waiter() {
             </button>
           </div>
           <div className="flex gap-2">
-            <button onClick={openPaymentModal} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-slate-600">
-              Fechar Conta
-            </button>
+            {currentTotal <= 0 ? (
+              <button
+                onClick={handleCloseZeroOrder}
+                disabled={isLoading}
+                className="flex-1 py-3 bg-red-900/40 hover:bg-red-800/60 text-red-400 hover:text-red-300 rounded-lg text-sm font-bold transition-colors border border-red-800/50 hover:border-red-600 disabled:opacity-50"
+              >
+                🚫 Encerrar Sem Cobrança
+              </button>
+            ) : (
+              <button onClick={openPaymentModal} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-slate-600">
+                Fechar Conta
+              </button>
+            )}
             <button
               onClick={() => { setMergePulseira(''); setIsMergeModalOpen(true); }}
               className="px-4 py-3 bg-slate-800 hover:bg-amber-500/20 text-amber-400 rounded-lg text-sm font-medium transition-colors border border-slate-700 hover:border-amber-500/50"
