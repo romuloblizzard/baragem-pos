@@ -1648,14 +1648,52 @@ export default function Waiter() {
               <h3 className="text-xl font-bold text-white">Enviar para Fixa</h3>
               <button onClick={() => setIsTransferModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
             </div>
-            <p className="text-sm text-slate-400 mb-4">
-              Todos os itens da comanda <span className="text-white font-bold">#{pulseira}</span> serão transferidos para a comanda fixa do cliente selecionado. Esta comanda ficará livre.
+            <p className="text-sm text-slate-400 mb-3">
+              Todos os itens da comanda <span className="text-white font-bold">#{pulseira}</span> ser�o transferidos para a comanda fixa do cliente selecionado. Esta comanda ficar� livre.
             </p>
+
+            {/* Corrigir n�mero da pulseira */}
+            <div className="mb-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+              <p className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">?? Corrigir N�mero da Pulseira</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  placeholder="N� correto"
+                  defaultValue={pulseira}
+                  id="transfer-pulseira-correction"
+                  className="flex-1 bg-slate-950 border border-amber-500/30 rounded-lg px-3 py-2 text-white font-mono text-center text-lg tracking-widest focus:ring-2 focus:ring-amber-500 outline-none"
+                  onChange={(e) => {
+                    const el = document.getElementById('transfer-pulseira-correction') as HTMLInputElement;
+                    if (el) el.value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('transfer-pulseira-correction') as HTMLInputElement;
+                    const novo = (el?.value || '').replace(/\D/g, '').padStart(4, '0');
+                    if (!novo || novo === '0000') { alert('Digite um n�mero v�lido.'); return; }
+                    if (novo === pulseira) { alert('O n�mero � o mesmo. Nada a corrigir.'); return; }
+                    if (!window.confirm('Confirma a corre��o da pulseira?\n\nDe: #' + pulseira + '\nPara: #' + novo + '\n\nA tela ser� recarregada com o novo n�mero.')) return;
+                    setIsTransferModalOpen(false);
+                    setTransferSearch('');
+                    setTransferResults([]);
+                    setPulseira(novo);
+                    setCurrentOrder(null);
+                  }}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white rounded-lg font-bold text-sm transition-all"
+                >
+                  Corrigir
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 italic">Use quando digitou o n�mero errado ao abrir a comanda.</p>
+            </div>
 
             <div className="space-y-3">
               <input
                 type="text"
-                placeholder="Buscar por nome ou nº da pulseira..."
+                placeholder="Buscar por nome ou n� da pulseira..."
                 value={transferSearch}
                 onChange={async (e: React.ChangeEvent<HTMLInputElement>) => {
                   const val = e.target.value;
@@ -1672,7 +1710,6 @@ export default function Waiter() {
                     const fixedCusts = custs
                       .filter((c: any) => c.fixed_pulseira)
                       .map((c: any) => ({ ...c, _type: 'customer' }));
-                    // Also try pulseira number search
                     const allFixed = await api.getFixedCustomers();
                     const byPulseira = allFixed
                       .filter((c: any) => c.fixed_pulseira?.includes(val))
@@ -1724,7 +1761,7 @@ export default function Waiter() {
                   </button>
                 ))}
                 {transferSearch.length >= 2 && transferResults.length === 0 && (
-                  <p className="text-center text-slate-500 text-sm py-4">Nenhum cliente/funcionário fixo encontrado.</p>
+                  <p className="text-center text-slate-500 text-sm py-4">Nenhum cliente/funcion�rio fixo encontrado.</p>
                 )}
                 {transferSearch.length < 2 && (
                   <p className="text-center text-slate-600 text-xs py-3">Digite pelo menos 2 caracteres para buscar</p>
@@ -1738,409 +1775,6 @@ export default function Waiter() {
               <button onClick={() => setIsTransferModalOpen(false)} className="w-full py-2 text-slate-400 hover:text-white text-sm">
                 Cancelar
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isMergeModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="text-xl font-bold text-white">Importar Comanda</h3>
-              <button onClick={() => setIsMergeModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
-            </div>
-            <p className="text-sm text-slate-400 mb-5">
-              Digite o número da comanda que deseja importar para <span className="text-white font-bold">#{pulseira}</span>. Todos os itens serão transferidos e a comanda de origem será encerrada.
-            </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pulseira de Origem</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={4}
-                  value={mergePulseira}
-                  onChange={(e) => setMergePulseira(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  onBlur={() => { if (mergePulseira) setMergePulseira(mergePulseira.padStart(4, '0')); }}
-                  placeholder="0000"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-center text-2xl font-mono tracking-[0.3em] focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-white"
-                  autoFocus
-                />
-              </div>
-              <button
-                disabled={!mergePulseira || isMerging}
-                onClick={async () => {
-                  if (!currentOrder || !mergePulseira) return;
-                  const padded = mergePulseira.padStart(4, '0');
-                  if (padded === pulseira) {
-                    alert('Não é possível importar a mesma comanda.');
-                    return;
-                  }
-                  if (!confirm(`Importar comanda #${padded} para #${pulseira}? Os itens serão transferidos e a comanda #${padded} será encerrada.`)) return;
-                  setIsMerging(true);
-                  try {
-                    await api.mergeOrder(padded, currentOrder.id);
-                    const updated = await api.getOrder(pulseira);
-                    setCurrentOrder(updated);
-                    setIsMergeModalOpen(false);
-                    setMergePulseira('');
-                    alert(`Comanda #${padded} importada com sucesso!`);
-                  } catch (err: any) {
-                    alert(err.message || 'Erro ao importar comanda.');
-                  } finally {
-                    setIsMerging(false);
-                  }
-                }}
-                className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-all active:scale-95"
-              >
-                {isMerging ? 'Importando...' : 'Confirmar Importação'}
-              </button>
-              <button onClick={() => setIsMergeModalOpen(false)} className="w-full py-2 text-slate-400 hover:text-white text-sm">
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isPaymentModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center p-6 border-b border-slate-800 shrink-0">
-              <h3 className="text-xl font-bold text-white">Fechar Conta</h3>
-              <button
-                onClick={() => setIsPaymentModalOpen(false)}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="overflow-y-auto p-6 space-y-6">
-              <div className="space-y-2">
-                {ordersToPay.map(order => {
-                  const orderTotal = order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0);
-                  return (
-                    <div key={order.id} className="bg-slate-800/50 p-3 rounded-lg flex justify-between items-center">
-                      <div>
-                        <p className="font-bold text-white">#{order.pulseira} - {order.customer_name}</p>
-                        <p className="text-xs text-slate-400">{order.items.length} itens</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold text-emerald-400">R$ {orderTotal.toFixed(2)}</p>
-                        {ordersToPay.length > 1 && (
-                          <button onClick={() => removeOrderFromPayment(order.id)} className="text-red-400 text-xs hover:text-red-300 mt-1">Remover</button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Adicionar outra pulseira</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={4}
-                    value={extraPulseira}
-                    onChange={(e) => setExtraPulseira(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    onBlur={() => { if (extraPulseira) setExtraPulseira(extraPulseira.padStart(4, '0')); }}
-                    placeholder="0000"
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono text-center"
-                  />
-                  <button onClick={addOrderToPayment} className="bg-blue-600 hover:bg-blue-500 text-white px-3 rounded-lg">
-                    <Plus size={18} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="border-t border-slate-800 pt-4 space-y-3">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-400">Total Consumido</span>
-                  <span className="text-slate-200 font-medium">
-                    R$ {ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0).toFixed(2)}
-                  </span>
-                </div>
-
-                {(() => {
-                  const totalDiscount = ordersToPay.reduce((acc, order) => {
-                    const sub = order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0);
-                    const disc = Math.min(sub, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100);
-                    return acc + disc;
-                  }, 0);
-
-                  if (totalDiscount <= 0) return null;
-
-                  return (
-                    <div className="flex justify-between items-center text-sm text-blue-400 font-bold">
-                      <span>Descontos Aplicados</span>
-                      <span>- R$ {totalDiscount.toFixed(2)}</span>
-                    </div>
-                  );
-                })()}
-
-                <div className="flex justify-between items-center text-sm">
-                  <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={includeServiceFee}
-                      onChange={(e) => setIncludeServiceFee(e.target.checked)}
-                      className="rounded border-slate-700 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
-                    />
-                    Taxa de Serviço (10%)
-                  </label>
-                  <span className="text-slate-200 font-medium">
-                    R$ {(includeServiceFee ? ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0) * 0.1 : 0).toFixed(2)}
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-400">Couvert Artístico</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-500 text-xs">R$</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={coverFee}
-                      onChange={(e) => setCoverFee(parseFloat(e.target.value) || 0)}
-                      className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-right text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-between items-center pt-3 border-t border-slate-800">
-                  <span className="text-slate-400 font-bold">Total a Pagar</span>
-                  <span className="text-2xl font-black text-emerald-400">
-                    R$ {(() => {
-                      const consumption = ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
-                      const totalDiscount = ordersToPay.reduce((acc, order) => {
-                        const sub = order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0);
-                        return acc + (Math.min(sub, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100));
-                      }, 0);
-                      const service = includeServiceFee ? (consumption - totalDiscount) * 0.1 : 0;
-                      return (consumption - totalDiscount + service + coverFee).toFixed(2);
-                    })()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Split payment UI */}
-              {(() => {
-                const consumption = ordersToPay.reduce((acc: number, order: any) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
-                const totalDiscount = ordersToPay.reduce((acc: number, order: any) => {
-                  const sub = order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0);
-                  return acc + (Math.min(sub, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100));
-                }, 0);
-                const service = includeServiceFee ? (consumption - totalDiscount) * 0.1 : 0;
-                const finalTotal = consumption - totalDiscount + service + coverFee;
-                const totalPaid = splitEntries.reduce((s: number, e: any) => s + e.amount, 0);
-                const remaining = finalTotal - totalPaid;
-
-                const methodLabels: Record<string, string> = { cash: '💵 Dinheiro', debit: '💳 Débito', credit: '💳 Crédito', pix: '💠 PIX' };
-                const methodColors: Record<string, string> = {
-                  cash: 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500 text-white',
-                  debit: 'bg-blue-600 hover:bg-blue-500 border-blue-500 text-white',
-                  credit: 'bg-purple-600 hover:bg-purple-500 border-purple-500 text-white',
-                  pix: 'bg-cyan-600 hover:bg-cyan-500 border-cyan-500 text-white',
-                };
-                const methodBadge: Record<string, string> = {
-                  cash: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-                  debit: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-                  credit: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
-                  pix: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
-                };
-
-                const addEntry = (method: string) => {
-                  if (remaining <= 0.01) return;
-                  const amt = parseFloat(splitInputAmount);
-                  const value = (!splitInputAmount || isNaN(amt) || amt <= 0) ? remaining : Math.min(amt, remaining);
-                  setSplitEntries((prev: any[]) => [...prev, { id: Date.now().toString(), method, amount: parseFloat(value.toFixed(2)) }]);
-                  setSplitInputAmount('');
-                };
-
-                return (
-                  <div className="space-y-3">
-                    <button onClick={handlePrint} className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-600 text-sm">
-                      🖨️ Imprimir Comanda
-                    </button>
-
-                    {/* Amount input */}
-                    <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3">
-                      <span className="text-slate-400 font-medium text-sm shrink-0">R$</span>
-                      <input
-                        type="number" min="0" step="0.01"
-                        value={splitInputAmount}
-                        onChange={e => setSplitInputAmount(e.target.value)}
-                        placeholder={remaining > 0.01 ? remaining.toFixed(2) : '0.00'}
-                        className="flex-1 bg-transparent text-white text-lg font-bold outline-none min-w-0"
-                      />
-                      {splitInputAmount && (
-                        <button onClick={() => setSplitInputAmount('')} className="text-slate-500 hover:text-slate-300">
-                          <X size={16} />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Method buttons — clicking adds the entry */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['cash', 'debit', 'credit', 'pix'] as const).map(m => (
-                        <button
-                          key={m}
-                          onClick={() => addEntry(m)}
-                          disabled={remaining <= 0.01}
-                          className={`py-3 rounded-xl text-sm font-bold transition-all border disabled:opacity-30 disabled:cursor-not-allowed ${methodColors[m]}`}
-                        >
-                          {methodLabels[m]}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Entries list */}
-                    {splitEntries.length > 0 && (
-                      <div className="space-y-1.5">
-                        {splitEntries.map((e: any) => (
-                          <div key={e.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${methodBadge[e.method]}`}>
-                            <span className="flex-1 text-sm font-medium">{methodLabels[e.method]}</span>
-                            <span className="font-bold text-sm">R$ {e.amount.toFixed(2)}</span>
-                            <button onClick={() => setSplitEntries((prev: any[]) => prev.filter((x: any) => x.id !== e.id))} className="opacity-60 hover:opacity-100 transition-opacity ml-1">
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Residual indicator */}
-                    <div className={`flex justify-between items-center px-4 py-3 rounded-xl border font-bold transition-colors ${remaining <= 0.01 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : splitEntries.length > 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-slate-800/50 border-slate-700 text-slate-400'}`}>
-                      <span className="text-sm">{remaining <= 0.01 ? '✓ Valor coberto' : 'Falta pagar'}</span>
-                      <span className="text-lg">{remaining <= 0.01 ? 'Pago' : `R$ ${remaining.toFixed(2)}`}</span>
-                    </div>
-
-                    {/* Confirm button */}
-                    <button
-                      onClick={handleSplitPayment}
-                      disabled={splitEntries.length === 0 || remaining > 0.01 || isProcessingSplit}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-base flex justify-center items-center gap-2"
-                    >
-                      {isProcessingSplit ? <span className="animate-spin">⏳</span> : null}
-                      Confirmar Pagamento
-                    </button>
-                  </div>
-                );
-              })()}
-
-              {/* Encerrar sem cobranca - so aparece se total = R$0 */}
-              {ordersToPay.length > 0 && ordersToPay.every((o: any) => (o.items || []).reduce((s: number, i: any) => s + (i.price_at_time * i.quantity), 0) === 0) && (
-                <button
-                  onClick={async () => {
-                    if (!currentOrder) return;
-                    if (!window.confirm('Encerrar a comanda #' + pulseira + ' sem cobranca? Ela nao possui consumo registrado.')) return;
-                    setIsLoading(true);
-                    try {
-                      await api.closeZeroOrder(currentOrder.id);
-                      setIsPaymentModalOpen(false);
-                      setSplitEntries([]);
-                      setSplitInputAmount('');
-                      setOrdersToPay([]);
-                      setView('home');
-                      setPulseira('');
-                      setCurrentOrder(null);
-                      loadOpenOrders();
-                    } catch (err: any) {
-                      alert(err.message || 'Erro ao encerrar comanda.');
-                    } finally {
-                      setIsLoading(false);
-                    }
-                  }}
-                  disabled={isLoading}
-                  className="w-full py-2.5 bg-red-900/30 hover:bg-red-800/50 text-red-400 hover:text-red-300 rounded-xl text-sm font-bold transition-colors border border-red-800/40 hover:border-red-600 disabled:opacity-50"
-                >
-                  Encerrar Sem Cobranca
-                </button>
-              )}
-              <button
-                onClick={() => { setIsPaymentModalOpen(false); setSplitEntries([]); setSplitInputAmount(''); }}
-                className="w-full py-2 text-slate-400 hover:text-white transition-colors"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Consumption Modal */}
-      {isConsumptionOpen && currentOrder && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-white">Consumo Atual</h3>
-              <button onClick={() => setIsConsumptionOpen(false)} className="text-slate-400 hover:text-white">
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-              {(() => {
-                const items = currentOrder.items;
-                const lastTwoIds = new Set(
-                  [...items]
-                    .sort((a: any, b: any) => b.id - a.id)
-                    .slice(0, 2)
-                    .map((i: any) => i.id)
-                );
-                return items.map((item: any) => {
-                  const isRecent = lastTwoIds.has(item.id);
-                  return (
-                    <div key={item.id} className={`flex justify-between items-center p-3 rounded-lg border ${isRecent ? 'bg-blue-500/5 border-blue-500/20' : 'bg-slate-800/30 border-slate-800/50'}`}>
-                      <div>
-                        <p className="font-medium text-slate-200">{item.product_name}</p>
-                        <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
-                        {isRecent && <span className="text-xs text-blue-400">recente</span>}
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <p className="font-bold text-slate-300">
-                          R$ {((item.quantity || 0) * (item.price_at_time || 0)).toFixed(2)}
-                        </p>
-                        {isRecent && (
-                          <button
-                            onClick={() => setItemToSwap(item)}
-                            className="px-3 py-1 bg-blue-500/20 text-blue-400 hover:bg-blue-500 text-xs hover:text-white rounded transition-colors"
-                          >
-                            Trocar
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-              {currentOrder.items.length === 0 && (
-                <p className="text-center text-slate-500 py-8">Nenhum item consumido ainda.</p>
-              )}
-            </div>
-
-            <div className="pt-4 border-t border-slate-800 mt-4 space-y-2">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-400">Subtotal</span>
-                <span className="text-slate-200">R$ {subtotalConsumido.toFixed(2)}</span>
-              </div>
-              {applied_discount > 0 && (
-                <div className="flex justify-between items-center text-sm text-blue-400 font-medium">
-                  <span>Desconto ({discount_percentage}%)</span>
-                  <span>- R$ {applied_discount.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between items-center pt-2 border-t border-slate-800/50">
-                <span className="text-slate-200 font-bold">Total Final</span>
-                <span className="text-xl font-bold text-emerald-400">
-                  R$ {currentTotal.toFixed(2)}
-                </span>
-              </div>
             </div>
           </div>
         </div>
