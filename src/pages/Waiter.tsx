@@ -2155,6 +2155,42 @@ export default function Waiter() {
               <button onClick={() => setIsFixModalOpen(false)} className="text-slate-500 hover:text-white"><X size={24} /></button>
             </div>
 
+            {/* Seção: Corrigir número da pulseira */}
+            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+              <p className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">✏️ Corrigir Número da Pulseira</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  placeholder="Ex: 0042"
+                  defaultValue={pulseira}
+                  id="fix-pulseira-correction-input"
+                  className="flex-1 bg-slate-950 border border-amber-500/30 rounded-xl px-3 py-2 text-white font-mono text-center text-xl tracking-widest focus:ring-2 focus:ring-amber-500 outline-none"
+                  onChange={(e) => {
+                    const el = document.getElementById('fix-pulseira-correction-input') as HTMLInputElement;
+                    if (el) el.value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('fix-pulseira-correction-input') as HTMLInputElement;
+                    const novo = (el?.value || '').replace(/\D/g, '').padStart(4, '0');
+                    if (!novo || novo === '0000') { alert('Digite um número válido.'); return; }
+                    if (novo === pulseira) { alert('O número é o mesmo. Não há o que corrigir.'); return; }
+                    if (!window.confirm(`Confirma a correção?\n\nDe: #${pulseira}\nPara: #${novo}\n\nA comanda será recarregada com o novo número.`)) return;
+                    setIsFixModalOpen(false);
+                    setPulseira(novo);
+                    setCurrentOrder(null);
+                  }}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold text-sm transition-all active:scale-95"
+                >
+                  Corrigir
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 italic">Use se digitou o número errado ao abrir a comanda.</p>
+            </div>
+
             {currentOrder?.is_fixed ? (
               <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl">
                 <p className="text-sm text-slate-300 mb-4">Esta comanda já está fixada para:</p>
@@ -2192,7 +2228,7 @@ export default function Waiter() {
                   />
                 </div>
 
-                <div className="max-h-[40vh] overflow-y-auto space-y-2 pr-2">
+                <div className="max-h-[30vh] overflow-y-auto space-y-2 pr-2">
                   {fixResults.employees.map(emp => (
                     <button
                       key={emp.id}

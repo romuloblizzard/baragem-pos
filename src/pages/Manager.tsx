@@ -2312,13 +2312,22 @@ function Team() {
       pin = Math.floor(100000 + Math.random() * 900000).toString();
     }
 
+    const rawPulseira = (formData.get('fixed_pulseira') as string || '').trim();
+
+    // Confirmação da pulseira digitada
+    if (rawPulseira) {
+      const padded = rawPulseira.padStart(4, '0');
+      const ok = window.confirm(`Confirma a Pulseira Fixa digitada?\n\nNúmero: #${padded}\n\nSe estiver incorreto, clique em Cancelar e corrija.`);
+      if (!ok) return;
+    }
+
     const data = {
       id: editingEmployee?.id,
       name: formData.get('name'),
       role: role,
       pin: pin,
       active: formData.get('active') === 'true',
-      fixed_pulseira: formData.get('fixed_pulseira'),
+      fixed_pulseira: rawPulseira ? rawPulseira.padStart(4, '0') : rawPulseira,
       discount_percentage: Number(formData.get('discount_percentage') || 0),
       discount_cap: Number(formData.get('discount_cap') || 0),
     };
@@ -2348,10 +2357,19 @@ function Team() {
   const handleSaveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
+    const rawPulseira = (formData.get('fixed_pulseira') as string || '').trim();
+
+    // Confirmação da pulseira digitada
+    if (rawPulseira) {
+      const padded = rawPulseira.padStart(4, '0');
+      const ok = window.confirm(`Confirma a Pulseira Reservada digitada?\n\nNúmero: #${padded}\n\nSe estiver incorreto, clique em Cancelar e corrija.`);
+      if (!ok) return;
+    }
+
     const data: any = {
       name: formData.get('name'),
       phone: formData.get('phone'),
-      fixed_pulseira: formData.get('fixed_pulseira') || null,
+      fixed_pulseira: rawPulseira ? rawPulseira.padStart(4, '0') : null,
     };
 
     try {
