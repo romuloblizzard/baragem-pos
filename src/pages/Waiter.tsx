@@ -2178,9 +2178,9 @@ export default function Waiter() {
                         try {
                           const ids = ordersToPay.map((o: any) => o.id);
                           await api.requestConferencePrint(ids);
-                          alert('✅ Enviado para impressão! O servidor irá imprimir automaticamente.');
+                          // Removido o alert() para impressão totalmente silenciosa
                         } catch (e) {
-                          alert('Erro ao solicitar impressão. Verifique o servidor de impressão.');
+                          console.error('Erro ao solicitar impressão:', e);
                         }
                       }}
                       className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-600 text-sm"
