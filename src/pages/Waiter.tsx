@@ -2040,9 +2040,8 @@ export default function Waiter() {
                               e.stopPropagation();
                               try {
                                 await api.requestConferencePrint([order.id]);
-                                alert(`✅ Impressão solicitada para a comanda #${order.pulseira}`);
                               } catch (err) {
-                                alert('Erro ao imprimir esta comanda.');
+                                console.error('Erro ao imprimir esta comanda:', err);
                               }
                             }}
                             className="w-full py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium rounded flex items-center justify-center gap-1 transition-colors mt-2"
@@ -2216,10 +2215,8 @@ export default function Waiter() {
                         try {
                           const ids = ordersToPay.map((o: any) => o.id);
                           await api.requestConferencePrint(ids);
-                          alert('✅ Conferência enviada para a fila de impressão!');
                         } catch (e) {
-                          alert('Erro ao solicitar impressão.');
-                          console.error('Erro:', e);
+                          console.error('Erro ao solicitar impressão:', e);
                         }
                       }}
                       className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-600 text-sm"

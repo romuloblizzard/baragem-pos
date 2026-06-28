@@ -201,6 +201,7 @@ export default function PrintQueue() {
             width: 76mm !important;
             margin: 0 !important;
             padding: 4px !important;
+            display: block !important;
             font-family: 'Courier New', Courier, monospace !important;
             font-size: 13px !important;
             line-height: 1.3 !important;
