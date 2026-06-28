@@ -665,15 +665,15 @@ export default function Waiter() {
           <div class="section-title">Pulseira ${order.pulseira || '0000'} &mdash; ${order.customer_name || 'Cliente'}</div>
           <table>
             ${items.map((item: any) => {
-              const att = item.attendant_name ? \` (\${item.attendant_name.trim().split(' ')[0]})\` : '';
+              const att = item.attendant_name ? ` (${item.attendant_name.trim().split(' ')[0]})` : '';
               const productName = item.products?.name || item.product_name || 'Produto';
-              return \`
+              return `
                 <tr>
-                  <td class="qty">\${item.quantity}x</td>
-                  <td class="name">\${productName}\${att}</td>
-                  <td class="price">R$&nbsp;\${(item.quantity * item.price_at_time).toFixed(2)}</td>
+                  <td class="qty">${item.quantity}x</td>
+                  <td class="name">${productName}${att}</td>
+                  <td class="price">R$&nbsp;${(item.quantity * item.price_at_time).toFixed(2)}</td>
                 </tr>
-              \`;
+              `;
             }).join('')}
           </table>
 
