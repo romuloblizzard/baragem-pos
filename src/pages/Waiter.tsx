@@ -1193,10 +1193,10 @@ export default function Waiter() {
               <h2 className="font-bold text-white">Pulseira #{pulseira}</h2>
               <button
                 onClick={() => { setEditPulseiraValue(pulseira); setIsEditingPulseira(true); }}
-                className="p-1 text-slate-500 hover:text-amber-400 transition-colors"
-                title="Corrigir número da pulseira"
+                className="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-400 hover:bg-amber-500 hover:text-white rounded-full transition-all border border-amber-500/30"
+                title="Trocar número da pulseira"
               >
-                ✏️
+                TROCAR
               </button>
               {currentOrder?.is_fixed && (
                 <span className="bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm border border-blue-500/20">
