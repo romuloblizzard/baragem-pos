@@ -1409,6 +1409,31 @@ export const api = {
     return { success: true, destPulseira: padded, destOrderId: destOrder.id };
   },
 
+  // Corrige o número da pulseira diretamente na comanda aberta
+  updateOrderPulseira: async (orderId: number, newPulseira: string) => {
+    const padded = newPulseira.replace(/\D/g, '').padStart(4, '0');
+    
+    // Verifica se já existe uma comanda aberta com esse novo número
+    const { data: existing } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('pulseira', padded)
+      .eq('status', 'open')
+      .maybeSingle();
+
+    if (existing) {
+      throw new Error(`Já existe uma comanda aberta com o número #${padded}. Não é possível renomear para este número.`);
+    }
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ pulseira: padded })
+      .eq('id', orderId);
+
+    if (error) throw error;
+    return { success: true, pulseira: padded };
+  },
+
   // Quick stock correction from waiter screen
   quickUpdateStock: async (productId: number, newStock: number) => {
     const { data, error } = await supabase

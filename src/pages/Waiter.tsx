@@ -221,6 +221,28 @@ export default function Waiter() {
     }
   };
 
+  const handleUpdatePulseira = async (novo) => {
+    if (!currentOrder) return;
+    const padded = novo.replace(/\D/g, "").padStart(4, "0");
+    if (!padded || padded === "0000") {
+      alert("Digite um n�mero v�lido.");
+      return;
+    }
+    if (padded === pulseira) return;
+    setIsLoading(true);
+    try {
+      await api.updateOrderPulseira(currentOrder.id, padded);
+      setPulseira(padded);
+      const updated = await api.getOrder(padded);
+      setCurrentOrder(updated);
+      alert("N�mero da comanda corrigido com sucesso para #" + padded + "!");
+    } catch (err) {
+      alert(err.message || "Erro ao corrigir n�mero da comanda.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSwapItem = async (newProduct: any) => {
     if (!itemToSwap || !currentOrder) return;
     setIsLoading(true);
@@ -1723,17 +1745,16 @@ export default function Waiter() {
                   }}
                 />
                 <button
-                  onClick={() => {
-                    const el = document.getElementById('transfer-pulseira-correction') as HTMLInputElement;
+                  onClick={async () => {
+                    const el = document.getElementById('transfer-pulseira-correction');
                     const novo = (el?.value || '').replace(/\D/g, '').padStart(4, '0');
                     if (!novo || novo === '0000') { alert('Digite um n�mero v�lido.'); return; }
                     if (novo === pulseira) { alert('O n�mero � o mesmo. Nada a corrigir.'); return; }
-                    if (!window.confirm('Confirma a corre��o da pulseira?\n\nDe: #' + pulseira + '\nPara: #' + novo + '\n\nA tela ser� recarregada com o novo n�mero.')) return;
+                    if (!window.confirm('Confirma a corre��o da pulseira?\n\nDe: #' + pulseira + '\nPara: #' + novo + '\n\nOs itens e a comanda ser�o renomeados para o novo n�mero.')) return;
                     setIsTransferModalOpen(false);
                     setTransferSearch('');
                     setTransferResults([]);
-                    setPulseira(novo);
-                    setCurrentOrder(null);
+                    await handleUpdatePulseira(novo);
                   }}
                   className="px-4 py-2 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white rounded-lg font-bold text-sm transition-all"
                 >
