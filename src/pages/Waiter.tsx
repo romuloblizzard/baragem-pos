@@ -120,6 +120,7 @@ export default function Waiter() {
   };
 
   const [isLoading, setIsLoading] = useState(false);
+  const [expandedPaymentOrderId, setExpandedPaymentOrderId] = useState<number | null>(null);
 
   useEffect(() => {
     api.getProducts().then(setProducts);
@@ -2001,18 +2002,55 @@ export default function Waiter() {
               <div className="space-y-2">
                 {ordersToPay.map(order => {
                   const orderTotal = order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0);
+                  const isExpanded = expandedPaymentOrderId === order.id;
+
                   return (
-                    <div key={order.id} className="bg-slate-800/50 p-3 rounded-lg flex justify-between items-center">
-                      <div>
-                        <p className="font-bold text-white">#{order.pulseira} - {order.customer_name}</p>
-                        <p className="text-xs text-slate-400">{order.items.length} itens</p>
+                    <div key={order.id} className="bg-slate-800/50 rounded-lg flex flex-col overflow-hidden">
+                      <div 
+                        className="p-3 flex justify-between items-center cursor-pointer hover:bg-slate-700/50 transition-colors"
+                        onClick={() => setExpandedPaymentOrderId(isExpanded ? null : order.id)}
+                      >
+                        <div>
+                          <p className="font-bold text-white">#{order.pulseira} - {order.customer_name}</p>
+                          <p className="text-xs text-slate-400">{order.items.length} itens <span className="text-blue-400 ml-1">(ver extrato)</span></p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-emerald-400">R$ {orderTotal.toFixed(2)}</p>
+                          {ordersToPay.length > 1 && (
+                            <button onClick={(e) => { e.stopPropagation(); removeOrderFromPayment(order.id); }} className="text-red-400 text-xs hover:text-red-300 mt-1">Remover</button>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-emerald-400">R$ {orderTotal.toFixed(2)}</p>
-                        {ordersToPay.length > 1 && (
-                          <button onClick={() => removeOrderFromPayment(order.id)} className="text-red-400 text-xs hover:text-red-300 mt-1">Remover</button>
-                        )}
-                      </div>
+
+                      {isExpanded && (
+                        <div className="p-3 border-t border-slate-700/50 bg-slate-900/30">
+                          <ul className="space-y-2 mb-3">
+                            {order.items.map((item: any) => (
+                              <li key={item.id} className="text-xs text-slate-300 flex justify-between">
+                                <span>
+                                  {item.quantity}x {item.products?.name} 
+                                  {item.attendant_name ? ` (${item.attendant_name.trim().split(' ')[0]})` : ''}
+                                </span>
+                                <span>R$ {(item.quantity * item.price_at_time).toFixed(2)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                await api.requestConferencePrint([order.id]);
+                                alert(`✅ Impressão solicitada para a comanda #${order.pulseira}`);
+                              } catch (err) {
+                                alert('Erro ao imprimir esta comanda.');
+                              }
+                            }}
+                            className="w-full py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium rounded flex items-center justify-center gap-1 transition-colors mt-2"
+                          >
+                            🖨️ Imprimir apenas esta comanda para o cliente
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2178,9 +2216,10 @@ export default function Waiter() {
                         try {
                           const ids = ordersToPay.map((o: any) => o.id);
                           await api.requestConferencePrint(ids);
-                          // Removido o alert() para impressão totalmente silenciosa
+                          alert('✅ Conferência enviada para a fila de impressão!');
                         } catch (e) {
-                          console.error('Erro ao solicitar impressão:', e);
+                          alert('Erro ao solicitar impressão.');
+                          console.error('Erro:', e);
                         }
                       }}
                       className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-600 text-sm"
