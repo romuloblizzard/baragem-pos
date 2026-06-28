@@ -4254,11 +4254,11 @@ function Cashier({ stats }: { stats: any }) {
 
     const session = closedSessionData;
     const date = new Date(session.closed_at).toLocaleString('pt-BR');
-    const initial = session.initial_balance || 0;
-    const sales = session.total_cash_sales || 0;
+    const initial = Number(session.initial_balance) || 0;
+    const sales = Number(session.total_cash_sales) || 0;
     const subtotal = initial + sales;
-    const amortization = session.amortization || 0;
-    const final = session.final_balance || 0;
+    const amortization = Number(session.amortization) || 0;
+    const final = Number(session.final_balance) || 0;
 
     const content = `
       <div style="font-family: monospace; width: 300px; padding: 20px; font-size: 12px;">
@@ -4363,17 +4363,17 @@ function Cashier({ stats }: { stats: any }) {
 
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Saldo Inicial (Fundo)</span>
-              <span className="font-mono font-bold text-slate-200">R$ {cashierStatus.session.initial_balance.toFixed(2)}</span>
+              <span className="font-mono font-bold text-slate-200">R$ {Number(cashierStatus.session.initial_balance || 0).toFixed(2)}</span>
             </div>
 
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Vendas em Dinheiro</span>
-              <span className="font-mono font-bold text-emerald-400">+ R$ {cashierStatus.session.current_cash_sales.toFixed(2)}</span>
+              <span className="font-mono font-bold text-emerald-400">+ R$ {Number(cashierStatus.session.current_cash_sales || 0).toFixed(2)}</span>
             </div>
 
             <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
               <span className="text-slate-200 font-bold">Total em Caixa (Estimado)</span>
-              <span className="font-mono font-bold text-xl text-white">R$ {cashierStatus.session.current_balance.toFixed(2)}</span>
+              <span className="font-mono font-bold text-xl text-white">R$ {Number(cashierStatus.session.current_balance || 0).toFixed(2)}</span>
             </div>
           </div>
         )}
@@ -4384,7 +4384,7 @@ function Cashier({ stats }: { stats: any }) {
         <div className="bg-blue-900/20 border border-blue-500/30 p-6 rounded-2xl flex justify-between items-center animate-in fade-in slide-in-from-top-4">
           <div>
             <h3 className="font-bold text-blue-400">Caixa Fechado com Sucesso!</h3>
-            <p className="text-sm text-slate-400">Saldo Final: R$ {closedSessionData.final_balance.toFixed(2)}</p>
+            <p className="text-sm text-slate-400">Saldo Final: R$ {Number(closedSessionData.final_balance || 0).toFixed(2)}</p>
           </div>
           <button
             onClick={handlePrintReceipt}

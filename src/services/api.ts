@@ -626,6 +626,16 @@ export const api = {
     return { success: true };
   },
   addOrderItems: async (orderId: number, items: any[]) => {
+    // Atualiza o atendente da comanda com o garçom ativo
+    const employee_id = localStorage.getItem('pos_employee_id');
+    const attendant_name = localStorage.getItem('pos_employee_name');
+    if (employee_id || attendant_name) {
+      await supabase.from('orders').update({
+        employee_id: employee_id || null,
+        attendant_name: attendant_name || 'Desconhecido'
+      }).eq('id', orderId);
+    }
+
     // 1. Fetch all product details needed for price_at_time in a single query
     // This is a safety check. For items with modifiers, we trust the calculated price from frontend
     const productIds = items.map(i => i.id);
@@ -711,10 +721,13 @@ export const api = {
     });
     if (txError) throw txError;
 
+    const attendant_name = localStorage.getItem('pos_employee_name');
     const { error: updError } = await supabase.from('orders').update({
       status: 'paid',
       closed_at: new Date().toISOString(),
-      receipt_printed: false
+      receipt_printed: false,
+      employee_id: employee_id || null,
+      attendant_name: attendant_name || 'Desconhecido'
     }).eq('id', orderId);
     if (updError) throw updError;
 
@@ -736,12 +749,25 @@ export const api = {
       });
       if (error) throw error;
     }
+    const attendant_name = localStorage.getItem('pos_employee_name');
     const { error: updError } = await supabase.from('orders').update({
       status: 'paid',
       closed_at: new Date().toISOString(),
-      receipt_printed: false
+      receipt_printed: false,
+      employee_id: employee_id || null,
+      attendant_name: attendant_name || 'Desconhecido'
     }).eq('id', orderId);
     if (updError) throw updError;
+    return { success: true };
+  },
+
+  // Solicita ao servidor de impressão que imprima a conferência da comanda silenciosamente (sem diálogo)
+  requestConferencePrint: async (orderIds: number[]) => {
+    const { error } = await supabase
+      .from('orders')
+      .update({ conference_print_requested: true })
+      .in('id', orderIds);
+    if (error) throw error;
     return { success: true };
   },
 
@@ -1381,7 +1407,14 @@ export const api = {
       .eq('pulseira', padded).eq('status', 'open').maybeSingle();
 
     if (!destOrder) {
-      const insertData: any = { pulseira: padded, customer_name: owner.name };
+      const employee_id = localStorage.getItem('pos_employee_id');
+      const attendant_name = localStorage.getItem('pos_employee_name');
+      const insertData: any = {
+        pulseira: padded,
+        customer_name: owner.name,
+        employee_id: employee_id || null,
+        attendant_name: attendant_name || 'Desconhecido'
+      };
       if (owner.type === 'employee') {
         insertData.discount_percentage = (owner as any).discount_percentage;
         insertData.discount_cap = (owner as any).discount_cap;
@@ -1432,6 +1465,30 @@ export const api = {
 
     if (error) throw error;
     return { success: true, pulseira: padded };
+  },
+
+  // Conta comandas abertas no turno atual do caixa
+  getCashierOrderCount: async () => {
+    const { data: session } = await supabase
+      .from('cashier_sessions')
+      .select('opened_at')
+      .eq('status', 'open')
+      .order('opened_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!session) {
+      return { activeSession: false, count: 0 };
+    }
+
+    const { count, error } = await supabase
+      .from('orders')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', session.opened_at)
+      .neq('status', 'cancelled');
+
+    if (error) throw error;
+    return { activeSession: true, count: count || 0 };
   },
 
   // Quick stock correction from waiter screen

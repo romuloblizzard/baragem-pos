@@ -66,6 +66,43 @@ export default function PrintQueue() {
           return; // Para não buscar tickets na mesma passada
         }
 
+        // 2. Verifica se há CONFERÊNCIAS DE COMANDA pendentes (solicitadas pelo garçom)
+        const { data: confData, error: confError } = await supabase
+          .from('orders')
+          .select('*, items:order_items(*, products(name))')
+          .eq('conference_print_requested', true)
+          .order('created_at', { ascending: true })
+          .limit(1);
+
+        if (confError) throw confError;
+
+        if (confData && confData.length > 0) {
+          const order = confData[0];
+          isPrintingRef.current = true;
+          setIsPrinting(true);
+          setStatus(`Imprimindo Conferência: Pulseira ${order.pulseira}...`);
+          addLog(`📄 Conferência solicitada: Pulseira ${order.pulseira}`, 'info');
+
+          // Dispara impressão da conferência
+          await printItem({ type: 'conference', data: order });
+
+          // Reseta o campo no banco para não reimprimir
+          const { error: confUpdateError } = await supabase
+            .from('orders')
+            .update({ conference_print_requested: false })
+            .eq('id', order.id);
+
+          if (confUpdateError) throw confUpdateError;
+
+          setTotalPrinted(prev => prev + 1);
+          addLog(`✅ Conferência #${order.id} impressa com sucesso!`, 'success');
+          setStatus('Monitorando novos pedidos...');
+          
+          isPrintingRef.current = false;
+          setIsPrinting(false);
+          return;
+        }
+
         // 2. Verifica se há TICKETS DE PRODUÇÃO pendentes
         const { data, error } = await supabase
           .from('order_items')
@@ -275,7 +312,10 @@ export default function PrintQueue() {
               {activeItemToPrint.data.items?.map((item: any) => (
                 <tr key={item.id}>
                   <td style={{ padding: '2px 0' }}>{parseFloat(item.quantity)}x</td>
-                  <td style={{ padding: '2px 0' }}>{item.products?.name}</td>
+                  <td style={{ padding: '2px 0' }}>
+                    {item.products?.name}
+                    {item.attendant_name ? ` (${item.attendant_name.trim().split(' ')[0]})` : ''}
+                  </td>
                   <td style={{ textAlign: 'right', padding: '2px 0' }}>
                     R$ {(item.quantity * item.price_at_time).toFixed(2)}
                   </td>
@@ -298,6 +338,56 @@ export default function PrintQueue() {
           </div>
         </div>
       )}
+
+      {activeItemToPrint?.type === 'conference' && (() => {
+        const items = activeItemToPrint.data.items || [];
+        const subtotal = items.reduce((s: number, i: any) => s + (i.quantity * i.price_at_time), 0);
+        return (
+          <div id="print-section" style={{ display: 'none' }}>
+            <div className="c-center c-header c-bold" style={{ fontSize: '18px' }}>
+              BARAGEM
+            </div>
+            <div className="c-center" style={{ fontSize: '11px', marginBottom: '8px' }}>
+              Conferência de Comanda<br/>
+              {new Date().toLocaleString('pt-BR')}
+            </div>
+
+            <div className="c-section" style={{ marginBottom: '8px' }}>
+              <strong>Pulseira:</strong> {activeItemToPrint.data.pulseira || '0000'}<br/>
+              <strong>Cliente:</strong> {activeItemToPrint.data.customer_name || 'Nao identificado'}<br/>
+              <strong>Atendente:</strong> {activeItemToPrint.data.attendant_name || 'Desconhecido'}
+            </div>
+
+            <table style={{ width: '100%', fontSize: '12px', marginBottom: '8px' }}>
+              <tbody>
+                {items.map((item: any) => (
+                  <tr key={item.id}>
+                    <td style={{ padding: '2px 0' }}>{parseFloat(item.quantity)}x</td>
+                    <td style={{ padding: '2px 0' }}>
+                      {item.products?.name}
+                      {item.attendant_name ? ` (${item.attendant_name.trim().split(' ')[0]})` : ''}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '2px 0' }}>
+                      R$ {(item.quantity * item.price_at_time).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="c-section" style={{ paddingTop: '8px', borderTop: '1px dashed #000' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span>Subtotal</span>
+                <span>R$ {subtotal.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="c-center" style={{ marginTop: '16px', fontSize: '10px', fontStyle: 'italic' }}>
+              ** CONFERÊNCIA — não é comprovante de pagamento **
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Interface Visual */}
       <div className="w-full max-w-2xl flex flex-col gap-4" style={{ minHeight: '100vh' }}>
