@@ -75,6 +75,10 @@ export default function Waiter() {
   const [nameSuggestions, setNameSuggestions] = useState<any[]>([]);
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
 
+  // Edit Pulseira inline state
+  const [isEditingPulseira, setIsEditingPulseira] = useState(false);
+  const [editPulseiraValue, setEditPulseiraValue] = useState('');
+
   // Fix Pulseira State
   const [isFixModalOpen, setIsFixModalOpen] = useState(false);
   const [fixSearchTerm, setFixSearchTerm] = useState('');
@@ -1144,14 +1148,63 @@ export default function Waiter() {
           Painel
         </button>
         <div className="text-center flex flex-col items-center">
-          <div className="flex items-center gap-2">
-            <h2 className="font-bold text-white">Pulseira #{pulseira}</h2>
-            {currentOrder?.is_fixed && (
-              <span className="bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm border border-blue-500/20">
-                📌 FIXA
-              </span>
-            )}
-          </div>
+          {isEditingPulseira ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                value={editPulseiraValue}
+                autoFocus
+                onChange={(e) => setEditPulseiraValue(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                className="w-24 bg-slate-800 border-2 border-amber-500 rounded-lg px-2 py-1 text-white font-mono text-center text-lg tracking-widest outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const novo = editPulseiraValue.padStart(4, '0');
+                    if (!novo || novo === '0000') return;
+                    setIsEditingPulseira(false);
+                    handleEnterOrder(novo);
+                  }
+                  if (e.key === 'Escape') setIsEditingPulseira(false);
+                }}
+              />
+              <button
+                onClick={() => {
+                  const novo = editPulseiraValue.padStart(4, '0');
+                  if (!novo || novo === '0000') { setIsEditingPulseira(false); return; }
+                  setIsEditingPulseira(false);
+                  handleEnterOrder(novo);
+                }}
+                className="p-1 bg-amber-600 hover:bg-amber-500 rounded-lg text-white"
+                title="Confirmar"
+              >
+                <Check size={18} />
+              </button>
+              <button
+                onClick={() => setIsEditingPulseira(false)}
+                className="p-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300"
+                title="Cancelar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <h2 className="font-bold text-white">Pulseira #{pulseira}</h2>
+              <button
+                onClick={() => { setEditPulseiraValue(pulseira); setIsEditingPulseira(true); }}
+                className="p-1 text-slate-500 hover:text-amber-400 transition-colors"
+                title="Corrigir número da pulseira"
+              >
+                ✏️
+              </button>
+              {currentOrder?.is_fixed && (
+                <span className="bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm border border-blue-500/20">
+                  📌 FIXA
+                </span>
+              )}
+            </div>
+          )}
           <p className="text-lg font-bold text-emerald-400 mt-0.5 leading-none">{currentOrder?.customer_name || 'Cliente'}</p>
         </div>
         <button 
