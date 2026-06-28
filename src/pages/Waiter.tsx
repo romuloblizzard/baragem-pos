@@ -1211,15 +1211,13 @@ export default function Waiter() {
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-1">
-              <h2 className="font-bold text-white">Pulseira #{pulseira}</h2>
-              <button
-                onClick={() => { setEditPulseiraValue(pulseira); setIsEditingPulseira(true); }}
-                className="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-400 hover:bg-amber-500 hover:text-white rounded-full transition-all border border-amber-500/30"
-                title="Trocar número da pulseira"
-              >
-                TROCAR
-              </button>
+            <div 
+              onClick={() => { setEditPulseiraValue(pulseira); setIsEditingPulseira(true); }}
+              className="flex items-center gap-1.5 cursor-pointer hover:bg-slate-800/80 px-3 py-1 rounded-xl transition-all border border-slate-800 hover:border-amber-500/30 group"
+              title="Clique para corrigir o número da pulseira"
+            >
+              <h2 className="font-bold text-white group-hover:text-amber-400 transition-colors">Pulseira #{pulseira}</h2>
+              <span className="text-xs text-slate-500 group-hover:text-amber-400 transition-colors">✏️</span>
               {currentOrder?.is_fixed && (
                 <span className="bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm border border-blue-500/20">
                   📌 FIXA
@@ -1746,7 +1744,7 @@ export default function Waiter() {
                 />
                 <button
                   onClick={async () => {
-                    const el = document.getElementById('transfer-pulseira-correction');
+                    const el = document.getElementById('transfer-pulseira-correction') as HTMLInputElement;
                     const novo = (el?.value || '').replace(/\D/g, '').padStart(4, '0');
                     if (!novo || novo === '0000') { alert('Digite um n�mero v�lido.'); return; }
                     if (novo === pulseira) { alert('O n�mero � o mesmo. Nada a corrigir.'); return; }
