@@ -620,212 +620,6 @@ export default function Waiter() {
     }
   };
 
-  const handlePrintConference = (order: any) => {
-    const items = order.items || [];
-    const subtotal = items.reduce((s: number, i: any) => s + (i.quantity * i.price_at_time), 0);
-    
-    const html = `
-      <html>
-        <head>
-          <title>Conferencia</title>
-          <style>
-            @page { margin: 2mm; size: 80mm auto; }
-            * { box-sizing: border-box; }
-            body {
-              font-family: Arial, Helvetica, sans-serif;
-              width: 76mm;
-              margin: 0;
-              padding: 2mm;
-              font-size: 12pt;
-              line-height: 1.5;
-              color: #000;
-              background: #fff;
-            }
-            h2 { font-size: 16pt; font-weight: 900; text-align: center; margin: 0 0 2mm; }
-            p { margin: 1mm 0; text-align: center; font-size: 11pt; }
-            hr { border: none; border-top: 1.5px solid #000; margin: 3mm 0; }
-            .dashed { border-top: 1.5px dashed #000; }
-            table { width: 100%; border-collapse: collapse; }
-            td { font-size: 12pt; padding: 1mm 0; vertical-align: top; }
-            td.qty { width: 8mm; font-weight: 900; }
-            td.name { font-weight: 700; padding-right: 2mm; }
-            td.price { width: 20mm; text-align: right; font-weight: 900; white-space: nowrap; }
-            .section-title { font-size: 11pt; font-weight: 900; background: #000; color: #fff; padding: 1mm 2mm; margin: 3mm 0 1mm; }
-            .total-row td { font-size: 12pt; font-weight: 700; padding: 1mm 0; }
-            .footer { text-align: center; margin-top: 4mm; font-size: 11pt; font-weight: 700; font-style: italic; }
-          </style>
-        </head>
-        <body>
-          <h2>${settings?.establishment_name || 'BARAGEM'}</h2>
-          <p>Conferencia de Comanda</p>
-          <p>${new Date().toLocaleString('pt-BR')}</p>
-          <p style="text-transform: uppercase; font-size: 10pt;">ATENDENTE: ${localStorage.getItem('pos_employee_name') || 'Desconhecido'}</p>
-          <hr class="dashed">
-
-          <div class="section-title">Pulseira ${order.pulseira || '0000'} &mdash; ${order.customer_name || 'Cliente'}</div>
-          <table>
-            ${items.map((item: any) => {
-              const att = item.attendant_name ? ` (${item.attendant_name.trim().split(' ')[0]})` : '';
-              const productName = item.products?.name || item.product_name || 'Produto';
-              return `
-                <tr>
-                  <td class="qty">${item.quantity}x</td>
-                  <td class="name">${productName}${att}</td>
-                  <td class="price">R$&nbsp;${(item.quantity * item.price_at_time).toFixed(2)}</td>
-                </tr>
-              `;
-            }).join('')}
-          </table>
-
-          <hr class="dashed">
-          <table class="total-row">
-            <tr>
-              <td>Subtotal</td>
-              <td class="price">R$&nbsp;${subtotal.toFixed(2)}</td>
-            </tr>
-          </table>
-          
-          <div class="footer">** CONFERENCIA - nao e comprovante **</div>
-        </body>
-      </html>
-    `;
-
-    let frame = document.getElementById('waiter-conference-frame') as HTMLIFrameElement | null;
-    if (!frame) {
-      frame = document.createElement('iframe');
-      frame.id = 'waiter-conference-frame';
-      frame.style.cssText = 'display:none;position:fixed;width:0;height:0;border:0;';
-      document.body.appendChild(frame);
-    }
-    const fdoc = frame.contentWindow!.document;
-    fdoc.open();
-    fdoc.write(html);
-    fdoc.close();
-    frame.onload = () => {
-      try {
-        frame!.contentWindow!.focus();
-        frame!.contentWindow!.print();
-      } catch (e) {
-        console.warn('Erro ao imprimir:', e);
-      }
-      frame!.onload = null;
-    };
-  };
-
-  const handlePrint = () => {
-    const subtotal = ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
-    const serviceValue = includeServiceFee ? subtotal * 0.1 : 0;
-    const total = subtotal + serviceValue + coverFee;
-
-    const html = `
-        <html>
-          <head>
-            <title>Comanda</title>
-            <style>
-              @page { margin: 2mm; size: 80mm auto; }
-              * { box-sizing: border-box; }
-              body {
-                font-family: Arial, Helvetica, sans-serif;
-                width: 76mm;
-                margin: 0;
-                padding: 2mm;
-                font-size: 12pt;
-                line-height: 1.5;
-                color: #000;
-                background: #fff;
-              }
-              h2 { font-size: 16pt; font-weight: 900; text-align: center; margin: 0 0 2mm; }
-              p { margin: 1mm 0; text-align: center; font-size: 11pt; }
-              hr { border: none; border-top: 1.5px solid #000; margin: 3mm 0; }
-              .dashed { border-top: 1.5px dashed #000; }
-              table { width: 100%; border-collapse: collapse; }
-              td { font-size: 12pt; padding: 1mm 0; vertical-align: top; }
-              td.qty { width: 8mm; font-weight: 900; }
-              td.name { font-weight: 700; padding-right: 2mm; }
-              td.price { width: 20mm; text-align: right; font-weight: 900; white-space: nowrap; }
-              .section-title { font-size: 11pt; font-weight: 900; background: #000; color: #fff; padding: 1mm 2mm; margin: 3mm 0 1mm; }
-              .total-row td { font-size: 12pt; font-weight: 700; padding: 1mm 0; }
-              .grand td { font-size: 16pt; font-weight: 900; padding-top: 2mm; }
-              .footer { text-align: center; margin-top: 4mm; font-size: 11pt; font-weight: 700; }
-            </style>
-          </head>
-          <body>
-            <h2>${settings.establishment_name || 'BAR DO ZE'}</h2>
-            ${settings.establishment_address ? `<p>${settings.establishment_address}</p>` : ''}
-            ${settings.establishment_phone ? `<p>Tel: ${settings.establishment_phone}</p>` : ''}
-            ${settings.establishment_cnpj ? `<p>CNPJ: ${settings.establishment_cnpj}</p>` : ''}
-            <p>${new Date().toLocaleString('pt-BR')}</p>
-            <p style="text-transform: uppercase; font-size: 10pt;">ATENDENTE: ${localStorage.getItem('pos_employee_name') || 'Desconhecido'}</p>
-            <hr class="dashed">
-
-            ${ordersToPay.map((order: any) => `
-              <div class="section-title">Pulseira ${order.pulseira} &mdash; ${order.customer_name || 'Cliente'}</div>
-                ${order.items.map((item: any) => {
-                  const att = item.attendant_name ? ` (${item.attendant_name.trim().split(' ')[0]})` : '';
-                  return `
-                    <tr>
-                      <td class="qty">${item.quantity}x</td>
-                      <td class="name">${item.product_name}${att}</td>
-                      <td class="price">R$&nbsp;${(item.quantity * item.price_at_time).toFixed(2)}</td>
-                    </tr>
-                  `;
-                }).join('')}
-            `).join('')}
-
-            <hr class="dashed">
-            <table class="total-row">
-              <tr>
-                <td>Subtotal</td>
-                <td class="price">R$&nbsp;${subtotal.toFixed(2)}</td>
-              </tr>
-              ${includeServiceFee ? `
-              <tr>
-                <td>Taxa Servico (10%)</td>
-                <td class="price">R$&nbsp;${serviceValue.toFixed(2)}</td>
-              </tr>` : ''}
-              ${coverFee > 0 ? `
-              <tr>
-                <td>Couvert</td>
-                <td class="price">R$&nbsp;${coverFee.toFixed(2)}</td>
-              </tr>` : ''}
-            </table>
-            <hr>
-            <table class="grand">
-              <tr>
-                <td><b>TOTAL</b></td>
-                <td class="price"><b>R$&nbsp;${total.toFixed(2)}</b></td>
-              </tr>
-            </table>
-            <hr class="dashed">
-
-            <div class="footer">${settings.receipt_footer || 'Obrigado pela preferencia!'}</div>
-          </body>
-        </html>
-      `;
-
-    // Usa iframe oculto — sem pop-up bloqueado
-    let frame = document.getElementById('waiter-print-frame') as HTMLIFrameElement | null;
-    if (!frame) {
-      frame = document.createElement('iframe');
-      frame.id = 'waiter-print-frame';
-      frame.style.cssText = 'display:none;position:fixed;width:0;height:0;border:0;';
-      document.body.appendChild(frame);
-    }
-    const fdoc = frame.contentWindow!.document;
-    fdoc.open();
-    fdoc.write(html);
-    fdoc.close();
-    frame.onload = () => {
-      try {
-        frame!.contentWindow!.focus();
-        frame!.contentWindow!.print();
-      } catch (e) {
-        console.warn('Erro ao imprimir:', e);
-      }
-      frame!.onload = null;
-    };
-  };
-
   const handleSplitPayment = async () => {
     if (ordersToPay.length === 0 || splitEntries.length === 0 || isProcessingSplit) return;
     setIsProcessingSplit(true);
@@ -2128,9 +1922,13 @@ export default function Waiter() {
                             ))}
                           </ul>
                           <button
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.stopPropagation();
-                              handlePrintConference(order);
+                              try {
+                                await api.requestConferencePrint([order.id]);
+                              } catch (err) {
+                                console.error('Erro ao imprimir esta comanda:', err);
+                              }
                             }}
                             className="w-full py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium rounded flex items-center justify-center gap-1 transition-colors mt-2"
                           >
@@ -2299,8 +2097,13 @@ export default function Waiter() {
                     </div>
 
                     <button
-                      onClick={() => {
-                        ordersToPay.forEach(o => handlePrintConference(o));
+                      onClick={async () => {
+                        try {
+                          const ids = ordersToPay.map((o: any) => o.id);
+                          await api.requestConferencePrint(ids);
+                        } catch (e) {
+                          console.error('Erro ao solicitar impressão:', e);
+                        }
                       }}
                       className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors border border-slate-600 text-sm"
                     >
