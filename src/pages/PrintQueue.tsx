@@ -179,29 +179,17 @@ export default function PrintQueue() {
       {/* Estilos para impressão em 80mm - apenas o cupom é exibido */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          /* Oculta toda a interface visual */
-          body > * { display: none !important; }
-          body #print-root { display: block !important; }
-
-          /* Fallback: método legado de visibilidade */
-          body * {
-            visibility: hidden !important;
-            background: transparent !important;
-          }
-          #print-section, #print-section * {
-            visibility: visible !important;
-            color: #000 !important;
-            font-weight: 800 !important;
-            -webkit-print-color-adjust: exact !important;
-          }
+          /* ATENÇÃO: Nunca use body > * { display: none } pois isso esconde a div #root do React */
+          
+          @page { margin: 0; }
+          
           #print-section {
-            position: fixed !important;
+            position: absolute !important;
             left: 0 !important;
             top: 0 !important;
             width: 76mm !important;
             margin: 0 !important;
             padding: 4px !important;
-            display: block !important;
             font-family: 'Courier New', Courier, monospace !important;
             font-size: 13px !important;
             line-height: 1.3 !important;
@@ -249,7 +237,7 @@ export default function PrintQueue() {
 
       {/* Conteiner de Impressão (invisível na tela, visível apenas na impressão) */}
       {activeItemToPrint?.type === 'ticket' && (
-        <div id="print-section" style={{ display: 'none' }}>
+        <div id="print-section" className="hidden print:block">
           <div className="c-center c-header c-bold">
             BARAGEM<br/>TICKET DE PRODUÇÃO
           </div>
@@ -293,7 +281,7 @@ export default function PrintQueue() {
       )}
 
       {activeItemToPrint?.type === 'receipt' && (
-        <div id="print-section" style={{ display: 'none' }}>
+        <div id="print-section" className="hidden print:block">
           <div className="c-center c-header c-bold" style={{ fontSize: '18px' }}>
             BARAGEM
           </div>
@@ -344,7 +332,7 @@ export default function PrintQueue() {
         const items = activeItemToPrint.data.items || [];
         const subtotal = items.reduce((s: number, i: any) => s + (i.quantity * i.price_at_time), 0);
         return (
-          <div id="print-section" style={{ display: 'none' }}>
+          <div id="print-section" className="hidden print:block">
             <div className="c-center c-header c-bold" style={{ fontSize: '18px' }}>
               BARAGEM
             </div>
@@ -391,7 +379,7 @@ export default function PrintQueue() {
       })()}
 
       {/* Interface Visual */}
-      <div className="w-full max-w-2xl flex flex-col gap-4" style={{ minHeight: '100vh' }}>
+      <div className="w-full max-w-2xl flex flex-col gap-4 print:hidden" style={{ minHeight: '100vh' }}>
 
         {/* Header */}
         <div className="flex items-center gap-3 pt-2">
