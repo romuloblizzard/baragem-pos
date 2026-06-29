@@ -174,7 +174,7 @@ export default function PrintQueue() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-4 flex flex-col items-center">
+    <div className="min-h-screen print:min-h-0 bg-slate-950 print:bg-white text-slate-200 print:text-black p-4 print:p-0 flex flex-col items-center print:items-start">
 
       {/* Estilos para impressão em 80mm - apenas o cupom é exibido */}
       <style dangerouslySetInnerHTML={{ __html: `
