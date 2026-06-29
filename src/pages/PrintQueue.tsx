@@ -183,6 +183,12 @@ export default function PrintQueue() {
           
           @page { margin: 0; }
           
+          #print-section, #print-section * {
+            color: #000 !important;
+            font-weight: 800 !important;
+            -webkit-print-color-adjust: exact !important;
+          }
+
           #print-section {
             position: absolute !important;
             left: 0 !important;
