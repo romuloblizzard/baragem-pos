@@ -191,7 +191,8 @@ export const api = {
                 group_id: group.id,
                 linked_product_id: i.linked_product_id,
                 is_fixed_price: i.is_fixed_price || false,
-                extra_price: parseFloat(i.extra_price) || 0
+                extra_price: parseFloat(i.extra_price) || 0,
+                quantity: parseFloat(i.quantity) || 1
               }));
             
             if (itemsToInsert.length > 0) {
@@ -268,7 +269,8 @@ export const api = {
                 group_id: group.id,
                 linked_product_id: i.linked_product_id,
                 is_fixed_price: i.is_fixed_price || false,
-                extra_price: parseFloat(i.extra_price) || 0
+                extra_price: parseFloat(i.extra_price) || 0,
+                quantity: parseFloat(i.quantity) || 1
               }));
             
             if (itemsToInsert.length > 0) {
