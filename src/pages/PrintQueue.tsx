@@ -31,7 +31,7 @@ export default function PrintQueue() {
         // 1. Verifica se há COMPROVANTES pendentes (comandas pagas)
         const { data: receiptData, error: receiptError } = await supabase
           .from('orders')
-          .select('*, items:order_items(*, products(name, parent:products(name)), modifiers:order_item_modifiers(product:products(name)))')
+          .select('*, items:order_items(*, products(name, parent_id, parent:parent_id(name)), modifiers:order_item_modifiers(product:products(name)))')
           .eq('status', 'paid')
           .eq('receipt_printed', false)
           .order('closed_at', { ascending: true })
@@ -69,7 +69,7 @@ export default function PrintQueue() {
         // 2. Verifica se há CONFERÊNCIAS DE COMANDA pendentes (solicitadas pelo garçom)
         const { data: confData, error: confError } = await supabase
           .from('orders')
-          .select('*, items:order_items(*, products(name, parent:products(name)), modifiers:order_item_modifiers(product:products(name)))')
+          .select('*, items:order_items(*, products(name, parent_id, parent:parent_id(name)), modifiers:order_item_modifiers(product:products(name)))')
           .eq('conference_print_requested', true)
           .order('created_at', { ascending: true })
           .limit(1);
@@ -111,7 +111,7 @@ export default function PrintQueue() {
             quantity, 
             created_at, 
             attendant_name,
-            products(name, categories(name), parent:products(name)),
+            products(name, categories(name), parent_id, parent:parent_id(name)),
             orders(pulseira, customer_name),
             modifiers:order_item_modifiers(product:products(name))
           `)
