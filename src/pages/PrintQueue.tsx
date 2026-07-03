@@ -31,7 +31,7 @@ export default function PrintQueue() {
         // 1. Verifica se há COMPROVANTES pendentes (comandas pagas)
         const { data: receiptData, error: receiptError } = await supabase
           .from('orders')
-          .select('*, items:order_items(*, products(name))')
+          .select('*, items:order_items(*, products(name), modifiers:order_item_modifiers(product_name))')
           .eq('status', 'paid')
           .eq('receipt_printed', false)
           .order('closed_at', { ascending: true })
@@ -69,7 +69,7 @@ export default function PrintQueue() {
         // 2. Verifica se há CONFERÊNCIAS DE COMANDA pendentes (solicitadas pelo garçom)
         const { data: confData, error: confError } = await supabase
           .from('orders')
-          .select('*, items:order_items(*, products(name))')
+          .select('*, items:order_items(*, products(name), modifiers:order_item_modifiers(product_name))')
           .eq('conference_print_requested', true)
           .order('created_at', { ascending: true })
           .limit(1);
@@ -113,7 +113,8 @@ export default function PrintQueue() {
               created_at,
               attendant_name,
               products(name, categories(name)),
-              orders(pulseira, customer_name)
+              orders(pulseira, customer_name),
+              modifiers:order_item_modifiers(product_name)
             `)
           .eq('printed', false)
           .order('id', { ascending: true })
@@ -263,6 +264,13 @@ export default function PrintQueue() {
 
           <div className="c-item c-center">
             {parseFloat(activeItemToPrint.data.quantity)}x {activeItemToPrint.data.products?.name}
+            {activeItemToPrint.data.modifiers && activeItemToPrint.data.modifiers.length > 0 && (
+              <div style={{ paddingTop: '2px', fontSize: '11px' }}>
+                {activeItemToPrint.data.modifiers.map((m: any, idx: number) => (
+                  <div key={idx}>+ {m.product_name}</div>
+                ))}
+              </div>
+            )}
           </div>
 
           {activeItemToPrint.data.notes && (
@@ -310,6 +318,13 @@ export default function PrintQueue() {
                   <td style={{ padding: '2px 0' }}>
                     {item.products?.name}
                     {item.attendant_name ? ` (${item.attendant_name.trim().split(' ')[0]})` : ''}
+                    {item.modifiers && item.modifiers.length > 0 && (
+                      <div style={{ fontSize: '10px', marginTop: '2px' }}>
+                        {item.modifiers.map((m: any, mIdx: number) => (
+                          <div key={mIdx}>+ {m.product_name}</div>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td style={{ textAlign: 'right', padding: '2px 0' }}>
                     R$ {(item.quantity * item.price_at_time).toFixed(2)}
@@ -361,6 +376,13 @@ export default function PrintQueue() {
                     <td style={{ padding: '2px 0' }}>
                       {item.products?.name}
                       {item.attendant_name ? ` (${item.attendant_name.trim().split(' ')[0]})` : ''}
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <div style={{ fontSize: '10px', marginTop: '2px' }}>
+                          {item.modifiers.map((m: any, mIdx: number) => (
+                            <div key={mIdx}>+ {m.product_name}</div>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td style={{ textAlign: 'right', padding: '2px 0' }}>
                       R$ {(item.quantity * item.price_at_time).toFixed(2)}
