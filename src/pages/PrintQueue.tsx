@@ -31,7 +31,7 @@ export default function PrintQueue() {
         // 1. Verifica se há COMPROVANTES pendentes (comandas pagas)
         const { data: receiptData, error: receiptError } = await supabase
           .from('orders')
-          .select('*, items:order_items(*, products(name), modifiers:order_item_modifiers(product_name))')
+          .select('*, items:order_items(*, products(name), modifiers:order_item_modifiers(product:products(name)))')
           .eq('status', 'paid')
           .eq('receipt_printed', false)
           .order('closed_at', { ascending: true })
@@ -69,7 +69,7 @@ export default function PrintQueue() {
         // 2. Verifica se há CONFERÊNCIAS DE COMANDA pendentes (solicitadas pelo garçom)
         const { data: confData, error: confError } = await supabase
           .from('orders')
-          .select('*, items:order_items(*, products(name), modifiers:order_item_modifiers(product_name))')
+          .select('*, items:order_items(*, products(name), modifiers:order_item_modifiers(product:products(name)))')
           .eq('conference_print_requested', true)
           .order('created_at', { ascending: true })
           .limit(1);
@@ -107,15 +107,14 @@ export default function PrintQueue() {
         const { data, error } = await supabase
           .from('order_items')
           .select(`
-              id,
-              quantity,
-              notes,
-              created_at,
-              attendant_name,
-              products(name, categories(name)),
-              orders(pulseira, customer_name),
-              modifiers:order_item_modifiers(product_name)
-            `)
+            id, 
+            quantity, 
+            created_at, 
+            attendant_name,
+            products(name, categories(name)),
+            orders(pulseira, customer_name),
+            modifiers:order_item_modifiers(product:products(name))
+          `)
           .eq('printed', false)
           .order('id', { ascending: true })
           .limit(1);
@@ -265,9 +264,9 @@ export default function PrintQueue() {
           <div className="c-item c-center">
             {parseFloat(activeItemToPrint.data.quantity)}x {activeItemToPrint.data.products?.name}
             {activeItemToPrint.data.modifiers && activeItemToPrint.data.modifiers.length > 0 && (
-              <div style={{ paddingTop: '2px', fontSize: '11px' }}>
+              <div style={{ fontSize: '12px', marginTop: '2px', fontWeight: 'bold' }}>
                 {activeItemToPrint.data.modifiers.map((m: any, idx: number) => (
-                  <div key={idx}>+ {m.product_name}</div>
+                  <div key={idx}>+ {m.product?.name}</div>
                 ))}
               </div>
             )}
@@ -321,7 +320,7 @@ export default function PrintQueue() {
                     {item.modifiers && item.modifiers.length > 0 && (
                       <div style={{ fontSize: '10px', marginTop: '2px' }}>
                         {item.modifiers.map((m: any, mIdx: number) => (
-                          <div key={mIdx}>+ {m.product_name}</div>
+                          <div key={mIdx}>+ {m.product?.name}</div>
                         ))}
                       </div>
                     )}
@@ -379,7 +378,7 @@ export default function PrintQueue() {
                       {item.modifiers && item.modifiers.length > 0 && (
                         <div style={{ fontSize: '10px', marginTop: '2px' }}>
                           {item.modifiers.map((m: any, mIdx: number) => (
-                            <div key={mIdx}>+ {m.product_name}</div>
+                            <div key={mIdx}>+ {m.product?.name}</div>
                           ))}
                         </div>
                       )}
