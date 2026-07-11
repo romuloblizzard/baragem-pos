@@ -3089,7 +3089,8 @@ function Products() {
     }
 
     if (productType === 'simple') {
-      data.stock = parseFloat(formData.get('stock') as string);
+      const parsedStock = parseFloat(formData.get('stock') as string);
+      data.stock = isNaN(parsedStock) ? 0 : parsedStock;
       data.unit = formData.get('unit');
       data.purchase_unit = formData.get('purchase_unit') || null;
       data.unit_conversion_factor = parseFloat(formData.get('unit_conversion_factor') as string) || 1;

@@ -669,6 +669,42 @@ export default function Waiter() {
     }
   };
 
+  const handlePartialPayment = async () => {
+    if (ordersToPay.length === 0 || splitEntries.length === 0 || isProcessingSplit) return;
+    setIsProcessingSplit(true);
+    try {
+      const subtotal = ordersToPay.reduce((acc, order) => acc + order.items.reduce((sum: number, item: any) => sum + (item.price_at_time * item.quantity), 0), 0);
+      
+      for (const order of ordersToPay) {
+        const orderSubtotal = order.items.reduce((acc: number, item: any) => acc + (item.price_at_time * item.quantity), 0);
+        const proportion = subtotal > 0 ? orderSubtotal / subtotal : 1 / ordersToPay.length;
+
+        const orderEntries = splitEntries.map(e => ({
+          method: e.method,
+          amount: parseFloat((e.amount * proportion).toFixed(2))
+        }));
+
+        await api.payPartialOrder(order.id, orderEntries);
+      }
+
+      setIsPaymentModalOpen(false);
+      setSplitEntries([]);
+      setSplitInputAmount('');
+      setOrdersToPay([]);
+      setIncludeServiceFee(true);
+      setCoverFee(0);
+      setView('home');
+      setPulseira('');
+      setCurrentOrder(null);
+      alert('Pagamento parcial registrado com sucesso! O comprovante parcial deve estar sendo impresso.');
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao processar pagamento parcial. Tente novamente.');
+    } finally {
+      setIsProcessingSplit(false);
+    }
+  };
+
   const openPaymentModal = () => {
     if (currentOrder) {
       setOrdersToPay([currentOrder]);
@@ -2040,8 +2076,9 @@ export default function Waiter() {
                 }, 0);
                 const service = includeServiceFee ? (consumption - totalDiscount) * 0.1 : 0;
                 const finalTotal = consumption - totalDiscount + service + coverFee;
+                const alreadyPaid = ordersToPay.reduce((acc: number, order: any) => acc + (order.transactions || []).reduce((sum: number, t: any) => sum + t.amount, 0), 0);
                 const totalPaid = splitEntries.reduce((s: number, e: any) => s + e.amount, 0);
-                const remaining = finalTotal - totalPaid;
+                const remaining = Math.max(0, finalTotal - alreadyPaid - totalPaid);
 
                 const methodLabels: Record<string, string> = { cash: '💵 Dinheiro', debit: '💳 Débito', credit: '💳 Crédito', pix: '💠 PIX' };
                 const methodColors: Record<string, string> = {
@@ -2156,21 +2193,39 @@ export default function Waiter() {
                       </div>
                     )}
 
+                    {/* Já Pago Indicator */}
+                    {alreadyPaid > 0 && (
+                      <div className="flex justify-between items-center px-4 py-2 rounded-xl border font-bold bg-slate-800/50 border-slate-700 text-slate-300">
+                        <span className="text-sm">Já Pago Anteriormente</span>
+                        <span className="text-lg">R$ {alreadyPaid.toFixed(2)}</span>
+                      </div>
+                    )}
+
                     {/* Residual indicator */}
                     <div className={`flex justify-between items-center px-4 py-3 rounded-xl border font-bold transition-colors ${remaining <= 0.01 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : splitEntries.length > 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-slate-800/50 border-slate-700 text-slate-400'}`}>
                       <span className="text-sm">{remaining <= 0.01 ? '✓ Valor coberto' : 'Falta pagar'}</span>
                       <span className="text-lg">{remaining <= 0.01 ? 'Pago' : `R$ ${remaining.toFixed(2)}`}</span>
                     </div>
 
-                    {/* Confirm button */}
-                    <button
-                      onClick={handleSplitPayment}
-                      disabled={splitEntries.length === 0 || remaining > 0.01 || isProcessingSplit}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-base flex justify-center items-center gap-2"
-                    >
-                      {isProcessingSplit ? <span className="animate-spin">⏳</span> : null}
-                      Confirmar Pagamento
-                    </button>
+                    {/* Confirm buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handlePartialPayment}
+                        disabled={splitEntries.length === 0 || remaining <= 0.01 || isProcessingSplit}
+                        className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-sm flex justify-center items-center gap-2"
+                      >
+                        {isProcessingSplit ? <span className="animate-spin">⏳</span> : null}
+                        Pgto. Parcial
+                      </button>
+                      <button
+                        onClick={handleSplitPayment}
+                        disabled={splitEntries.length === 0 || remaining > 0.01 || isProcessingSplit}
+                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-sm flex justify-center items-center gap-2"
+                      >
+                        {isProcessingSplit ? <span className="animate-spin">⏳</span> : null}
+                        Fechar Conta
+                      </button>
+                    </div>
                   </div>
                 );
               })()}
