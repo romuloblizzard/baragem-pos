@@ -191,7 +191,8 @@ export const api = {
                 group_id: group.id,
                 linked_product_id: i.linked_product_id,
                 is_fixed_price: i.is_fixed_price || false,
-                extra_price: parseFloat(i.extra_price) || 0
+                extra_price: parseFloat(i.extra_price) || 0,
+                quantity: parseFloat(i.quantity) || 1
               }));
             
             if (itemsToInsert.length > 0) {
@@ -268,7 +269,8 @@ export const api = {
                 group_id: group.id,
                 linked_product_id: i.linked_product_id,
                 is_fixed_price: i.is_fixed_price || false,
-                extra_price: parseFloat(i.extra_price) || 0
+                extra_price: parseFloat(i.extra_price) || 0,
+                quantity: parseFloat(i.quantity) || 1
               }));
             
             if (itemsToInsert.length > 0) {
@@ -533,11 +535,18 @@ export const api = {
       .eq('order_id', order.id);
     if (itemsError) throw itemsError;
 
+    const { data: transactions, error: txsError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('order_id', order.id);
+    if (txsError) throw txsError;
+
     // Resolve fixed info to ensure latest names/discounts are present
     const owner = await api.findFixedOwner(pulseira);
 
     return {
       ...order,
+      transactions: transactions || [],
       customer_name: owner?.name || order.customer_name,
       discount_percentage: owner?.discount_percentage ?? order.discount_percentage,
       discount_cap: owner?.discount_cap ?? order.discount_cap,
@@ -731,6 +740,28 @@ export const api = {
     }).eq('id', orderId);
     if (updError) throw updError;
 
+    return { success: true };
+  },
+
+  payPartialOrder: async (orderId: number, entries: Array<{ amount: number; method: string }>) => {
+    const employee_id = localStorage.getItem('pos_employee_id');
+    for (const entry of entries) {
+      if (entry.amount <= 0) continue;
+      const { error } = await supabase.from('transactions').insert({
+        order_id: orderId,
+        amount: entry.amount,
+        method: entry.method,
+        employee_id: employee_id || null
+      });
+      if (error) throw error;
+    }
+    
+    // Set conference_print_requested to true so printer outputs the updated conference with partial payment
+    const { error: updError } = await supabase.from('orders').update({
+      conference_print_requested: true
+    }).eq('id', orderId);
+
+    if (updError) throw updError;
     return { success: true };
   },
 

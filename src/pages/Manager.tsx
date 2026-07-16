@@ -3089,7 +3089,8 @@ function Products() {
     }
 
     if (productType === 'simple') {
-      data.stock = parseFloat(formData.get('stock') as string);
+      const parsedStock = parseFloat(formData.get('stock') as string);
+      data.stock = isNaN(parsedStock) ? 0 : parsedStock;
       data.unit = formData.get('unit');
       data.purchase_unit = formData.get('purchase_unit') || null;
       data.unit_conversion_factor = parseFloat(formData.get('unit_conversion_factor') as string) || 1;
@@ -3189,7 +3190,7 @@ function Products() {
   const addModifierItem = (groupIndex: number) => {
     const newGroups = [...modifierGroups];
     const items = [...(newGroups[groupIndex].product_modifier_items || [])];
-    items.push({ linked_product_id: '', is_fixed_price: false, extra_price: 0 });
+    items.push({ linked_product_id: '', is_fixed_price: false, extra_price: 0, quantity: 1 });
     newGroups[groupIndex].product_modifier_items = items;
     setModifierGroups(newGroups);
   };
@@ -4009,6 +4010,16 @@ function Products() {
                               ))}
                             </select>
                             
+                            <input
+                              type="number"
+                              step="0.001"
+                              value={item.quantity === undefined ? 1 : item.quantity}
+                              onChange={(e) => updateModifierItem(gIdx, iIdx, 'quantity', parseFloat(e.target.value))}
+                              className="w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs outline-none"
+                              placeholder="Medida"
+                              title="Medida (Ex: 0.33)"
+                            />
+
                             <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 rounded-lg border border-slate-700 shadow-inner">
                               <input 
                                 type="checkbox" 
