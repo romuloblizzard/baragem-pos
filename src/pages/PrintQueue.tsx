@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabaseAdmin as supabase } from '../services/supabase-admin';
+import { supabase } from '../services/supabase';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, Printer, CheckCircle, AlertTriangle, Info } from 'lucide-react';
 
