@@ -4,13 +4,14 @@ import { Link } from 'react-router-dom';
 
 import {
   Search, Plus, Minus, ShoppingCart, User, CreditCard,
-  ChevronLeft, Check, X, Home, Filter, List, PlusCircle, Trash2, RefreshCw, ClipboardList
+  ChevronLeft, Check, X, Home, Filter, List, PlusCircle, Trash2, RefreshCw, ClipboardList, Edit2
 } from 'lucide-react';
 
 export default function Waiter() {
   const [view, setViewInternal] = useState<'home' | 'order'>('home');
   const setView = (v: 'home' | 'order') => {
     setViewInternal(v);
+    setSearchTerm('');
     if (v === 'home') {
       // Auto-refresh open orders when returning to home
       loadOpenOrders();
@@ -40,6 +41,8 @@ export default function Waiter() {
   const [cart, setCart] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [refundOrderDetails, setRefundOrderDetails] = useState<any>(null);
   const [isConsumptionOpen, setIsConsumptionOpen] = useState(false);
   const [itemToSwap, setItemToSwap] = useState<any>(null);
   const [swapSearchTerm, setSwapSearchTerm] = useState('');
@@ -98,6 +101,35 @@ export default function Waiter() {
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [cashierOrderCount, setCashierOrderCount] = useState<number>(0);
   const [isEmployeeListOpen, setIsEmployeeListOpen] = useState(false);
+
+  const handleOpenRefundModal = async () => {
+    const rawPulseira = window.prompt("Digite o número da comanda (ex: 001) para estornar itens:");
+    if (!rawPulseira) return;
+    const pulseira = rawPulseira.trim();
+    try {
+      const order = await api.getOrder(pulseira);
+      setRefundOrderDetails(order);
+      setIsRefundModalOpen(true);
+    } catch (err: any) {
+      console.error(err);
+      alert("Comanda não encontrada ou erro: " + err.message);
+    }
+  };
+
+  const handleRefundItem = async (itemId: number, productName: string) => {
+    const pin = window.prompt(`Digite o seu PIN (garçom) para confirmar o ESTORNO de: ${productName}`);
+    if (!pin) return;
+    try {
+      await api.refundOrderItem(refundOrderDetails.id, itemId, pin);
+      alert('Estorno realizado com sucesso!');
+      // Reload the order details
+      const order = await api.getOrder(refundOrderDetails.pulseira);
+      setRefundOrderDetails(order);
+      loadOpenOrders();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao realizar estorno.');
+    }
+  };
 
   const loadOpenOrders = async () => {
     setIsLoadingOrders(true);
@@ -334,6 +366,20 @@ export default function Waiter() {
 
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleEditCustomerName = async () => {
+    if (!currentOrder) return;
+    const newName = window.prompt('Corrigir nome do cliente na comanda:', currentOrder.customer_name || '');
+    if (newName !== null && newName.trim() !== '' && newName.trim() !== currentOrder.customer_name) {
+      try {
+        await api.updateOrderCustomerName(currentOrder.id, newName.trim());
+        setCurrentOrder({ ...currentOrder, customer_name: newName.trim() });
+        loadOpenOrders();
+      } catch (err) {
+        alert('Erro ao atualizar nome.');
+      }
     }
   };
 
@@ -669,6 +715,34 @@ export default function Waiter() {
     }
   };
 
+  const handleDeletePastTransaction = async (txId: number) => {
+    if (!confirm('Deseja realmente apagar este pagamento parcial? O valor voltará a ser cobrado na comanda.')) return;
+    const pin = window.prompt('Digite a senha de Gerente para confirmar a exclusão:');
+    if (!pin) return;
+    try {
+      const isValid = await api.verifyAdminPin(pin);
+      if (!isValid) {
+        alert('Senha incorreta ou sem permissão de Gerente.');
+        return;
+      }
+      await api.deleteTransaction(txId);
+      // Reload orders to reflect the deleted transaction
+      await loadOpenOrders();
+      alert('Pagamento apagado com sucesso!');
+      // Refresh orders so the modal shows the updated transactions and new total
+      const updatedOrders = await Promise.all(ordersToPay.map(o => api.getOrder(o.pulseira)));
+      setOrdersToPay(updatedOrders);
+      
+      // Update current order in the background in case they close the modal
+      if (currentOrder) {
+        const updatedCurrent = updatedOrders.find(o => o.id === currentOrder.id);
+        if (updatedCurrent) setCurrentOrder(updatedCurrent);
+      }
+    } catch (err) {
+      alert('Erro ao apagar pagamento.');
+    }
+  };
+
   const handlePartialPayment = async () => {
     if (ordersToPay.length === 0 || splitEntries.length === 0 || isProcessingSplit) return;
     setIsProcessingSplit(true);
@@ -687,16 +761,21 @@ export default function Waiter() {
         await api.payPartialOrder(order.id, orderEntries);
       }
 
-      setIsPaymentModalOpen(false);
+      // Refresh orders so the modal shows the updated transactions and new total
+      const updatedOrders = await Promise.all(ordersToPay.map(o => api.getOrder(o.pulseira)));
+      setOrdersToPay(updatedOrders);
+      
+      // Update current order in the background in case they close the modal
+      if (currentOrder) {
+        const updatedCurrent = updatedOrders.find(o => o.id === currentOrder.id);
+        if (updatedCurrent) setCurrentOrder(updatedCurrent);
+      }
+
       setSplitEntries([]);
       setSplitInputAmount('');
-      setOrdersToPay([]);
-      setIncludeServiceFee(true);
-      setCoverFee(0);
-      setView('home');
-      setPulseira('');
-      setCurrentOrder(null);
-      alert('Pagamento parcial registrado com sucesso! O comprovante parcial deve estar sendo impresso.');
+      setSplitPeopleCount('');
+      
+      alert('Pagamento parcial registrado com sucesso! A tela continuará aberta para adicionar mais pagamentos caso seja dividido.');
     } catch (err) {
       console.error(err);
       alert('Erro ao processar pagamento parcial. Tente novamente.');
@@ -857,6 +936,13 @@ export default function Waiter() {
             >
               <PlusCircle size={20} />
             </button>
+            <button
+              onClick={handleOpenRefundModal}
+              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-red-400 hover:text-red-300 px-3 rounded-xl transition-all active:scale-95 flex items-center justify-center"
+              title="Estornar Item de Comanda"
+            >
+              <Minus size={20} />
+            </button>
           </div>
         </header>
 
@@ -912,7 +998,7 @@ export default function Waiter() {
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
               {clientOrders.map(order => {
-                const totalWithFee = order.total * 1.1;
+                const finalTotal = order.total;
                 const getBg = (total: number) => {
                   if (total >= 200) return 'bg-amber-500/5 border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/10';
                   if (total >= 100) return 'bg-emerald-500/5 border-emerald-500/25 hover:border-emerald-400 hover:bg-emerald-500/10';
@@ -930,7 +1016,7 @@ export default function Waiter() {
                   <button
                     key={order.id}
                     onClick={() => handleEnterOrder(order.pulseira)}
-                    className={`border rounded-xl p-3 text-center transition-all active:scale-95 flex flex-col items-center gap-1 group ${getBg(totalWithFee)}`}
+                    className={`border rounded-xl p-3 text-center transition-all active:scale-95 flex flex-col items-center gap-1 group ${getBg(finalTotal)}`}
                   >
                     <span className="text-2xl font-black font-mono text-white tracking-tight leading-none group-hover:text-blue-300 transition-colors">
                       {order.pulseira}
@@ -938,8 +1024,8 @@ export default function Waiter() {
                     <span className="text-2xl font-black text-slate-400 leading-tight line-clamp-1 w-full">
                       {order.customer_name || '—'}
                     </span>
-                    <span className={`text-2xl font-black ${getValueColor(totalWithFee)} leading-none`}>
-                      R$ {totalWithFee.toFixed(0)}
+                    <span className={`text-2xl font-black ${getValueColor(finalTotal)} leading-none`}>
+                      R$ {finalTotal.toFixed(2)}
                     </span>
                     {order.items_count > 0 && (
                       <span className="text-xs text-slate-600 leading-none">
@@ -1077,7 +1163,7 @@ export default function Waiter() {
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
                     {employeeOrders.map(order => {
-                      const totalWithFee = order.total * 1.1;
+                      const finalTotal = order.total;
                       return (
                         <button
                           key={order.id}
@@ -1094,7 +1180,7 @@ export default function Waiter() {
                             {order.customer_name || '�'}
                           </span>
                           <span className="text-lg font-black text-purple-400 leading-none">
-                            R$ {totalWithFee.toFixed(0)}
+                            R$ {finalTotal.toFixed(2)}
                           </span>
                           {order.items_count > 0 && (
                             <span className="text-xs text-slate-500 leading-none">
@@ -1219,7 +1305,12 @@ export default function Waiter() {
               )}
             </div>
           )}
-          <p className="text-lg font-bold text-emerald-400 mt-0.5 leading-none">{currentOrder?.customer_name || 'Cliente'}</p>
+          <div className="flex items-center justify-center gap-2 mt-1">
+            <p className="text-lg font-bold text-emerald-400 leading-none">{currentOrder?.customer_name || 'Cliente'}</p>
+            <button onClick={handleEditCustomerName} className="text-slate-500 hover:text-emerald-400 transition-colors p-1" title="Corrigir Nome">
+              <Edit2 size={14} />
+            </button>
+          </div>
         </div>
         <button 
           onClick={() => setIsFixModalOpen(true)}
@@ -2077,6 +2168,7 @@ export default function Waiter() {
                 const service = includeServiceFee ? (consumption - totalDiscount) * 0.1 : 0;
                 const finalTotal = consumption - totalDiscount + service + coverFee;
                 const alreadyPaid = ordersToPay.reduce((acc: number, order: any) => acc + (order.transactions || []).reduce((sum: number, t: any) => sum + t.amount, 0), 0);
+                const pastTransactions = ordersToPay.flatMap((order: any) => order.transactions || []).sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
                 const totalPaid = splitEntries.reduce((s: number, e: any) => s + e.amount, 0);
                 const remaining = Math.max(0, finalTotal - alreadyPaid - totalPaid);
 
@@ -2097,7 +2189,11 @@ export default function Waiter() {
                 const addEntry = (method: string) => {
                   if (remaining <= 0.01) return;
                   const amt = parseFloat(splitInputAmount);
-                  const value = (!splitInputAmount || isNaN(amt) || amt <= 0) ? remaining : Math.min(amt, remaining);
+                  if (!splitInputAmount || isNaN(amt) || amt <= 0) {
+                    alert('Por favor, digite o valor que foi pago (Restante: R$ ' + remaining.toFixed(2) + ') antes de escolher a forma de pagamento.');
+                    return;
+                  }
+                  const value = Math.min(amt, remaining);
                   setSplitEntries((prev: any[]) => [...prev, { id: Date.now().toString(), method, amount: parseFloat(value.toFixed(2)) }]);
                   setSplitInputAmount('');
                 };
@@ -2154,7 +2250,7 @@ export default function Waiter() {
                         type="number" min="0" step="0.01"
                         value={splitInputAmount}
                         onChange={e => setSplitInputAmount(e.target.value)}
-                        placeholder={remaining > 0.01 ? remaining.toFixed(2) : '0.00'}
+                        placeholder="0.00"
                         className="flex-1 bg-transparent text-white text-lg font-bold outline-none min-w-0"
                       />
                       {splitInputAmount && (
@@ -2193,11 +2289,32 @@ export default function Waiter() {
                       </div>
                     )}
 
-                    {/* Já Pago Indicator */}
+                    {/* Já Pago Indicator & Past Transactions */}
                     {alreadyPaid > 0 && (
-                      <div className="flex justify-between items-center px-4 py-2 rounded-xl border font-bold bg-slate-800/50 border-slate-700 text-slate-300">
-                        <span className="text-sm">Já Pago Anteriormente</span>
-                        <span className="text-lg">R$ {alreadyPaid.toFixed(2)}</span>
+                      <div className="mb-4">
+                        <div className="flex justify-between items-center px-4 py-2 rounded-xl border font-bold bg-slate-800/50 border-slate-700 text-slate-300 mb-2">
+                          <span className="text-sm">Já Pago Anteriormente</span>
+                          <span className="text-lg">R$ {alreadyPaid.toFixed(2)}</span>
+                        </div>
+                        <div className="space-y-1 pl-2 border-l-2 border-slate-700">
+                          {pastTransactions.map((tx: any) => (
+                            <div key={tx.id} className="flex justify-between items-center px-3 py-1.5 rounded-lg bg-slate-900/50">
+                              <span className="text-sm text-slate-400">
+                                {methodLabels[tx.method] || tx.method} - {new Date(tx.created_at).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-300 text-sm">R$ {tx.amount.toFixed(2)}</span>
+                                <button
+                                  onClick={() => handleDeletePastTransaction(tx.id)}
+                                  className="text-red-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity p-1"
+                                  title="Apagar este pagamento parcial"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 
@@ -2582,6 +2699,66 @@ export default function Waiter() {
               <div className="text-center text-xs text-slate-500 italic pt-2">
                 * Se não tiver mercadoria no estoque, feche este aviso para cancelar a venda.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Refund Modal */}
+      {isRefundModalOpen && refundOrderDetails && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-start p-6 border-b border-slate-800">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Minus size={24} className="text-red-400" />
+                  Estorno de Itens
+                </h3>
+                <p className="text-sm text-slate-400 mt-1">
+                  Comanda #{refundOrderDetails.pulseira} {refundOrderDetails.customer_name ? `- ${refundOrderDetails.customer_name}` : ''}
+                </p>
+              </div>
+              <button onClick={() => { setIsRefundModalOpen(false); setRefundOrderDetails(null); }} className="text-slate-400 hover:text-white">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {refundOrderDetails.items?.length === 0 && (
+                <p className="text-center text-slate-500 py-8">Nenhum item nesta comanda.</p>
+              )}
+              {refundOrderDetails.items?.map((item: any) => {
+                const isRefunded = item.price_at_time === 0 && item.attendant_name?.includes('Estorno');
+                return (
+                  <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border ${isRefunded ? 'bg-red-950/20 border-red-900/30 opacity-70' : 'bg-slate-800/40 border-slate-700/50'}`}>
+                    <div>
+                      <p className={`font-bold ${isRefunded ? 'text-red-400 line-through' : 'text-slate-200'}`}>
+                        {item.quantity}x {item.products?.name}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {item.attendant_name ? `Lançado por: ${item.attendant_name}` : 'Lançado pelo sistema'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className={`font-mono font-bold ${isRefunded ? 'text-slate-500' : 'text-emerald-400'}`}>
+                        R$ {(item.quantity * item.price_at_time).toFixed(2)}
+                      </span>
+                      {!isRefunded && (
+                        <button
+                          onClick={() => handleRefundItem(item.id, item.products?.name)}
+                          className="bg-red-500/20 hover:bg-red-500/40 text-red-400 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-1"
+                        >
+                          <Minus size={14} /> Estornar
+                        </button>
+                      )}
+                      {isRefunded && (
+                        <span className="text-red-400 text-xs font-bold uppercase px-2 py-1 bg-red-500/10 rounded-md">
+                          Estornado
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

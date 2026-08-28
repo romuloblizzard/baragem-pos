@@ -33,12 +33,42 @@ export default function App() {
     if ((role === 'admin' || role === 'waiter') && isToday && employeeId && deviceId) {
       setUserRole(role);
 
+      // Initialize activity time if missing
+      if (!localStorage.getItem('pos_last_activity')) {
+        localStorage.setItem('pos_last_activity', Date.now().toString());
+      }
+
+      const updateActivity = () => {
+        localStorage.setItem('pos_last_activity', Date.now().toString());
+      };
+
+      // Listen to interactions
+      window.addEventListener('click', updateActivity);
+      window.addEventListener('keydown', updateActivity);
+      window.addEventListener('touchstart', updateActivity);
+
+      // Check inactivity every minute (3 hours = 10800000 ms)
+      const INACTIVITY_LIMIT_MS = 3 * 60 * 60 * 1000;
+      const inactivityInterval = setInterval(() => {
+        const lastActivity = parseInt(localStorage.getItem('pos_last_activity') || Date.now().toString());
+        if (Date.now() - lastActivity > INACTIVITY_LIMIT_MS) {
+          handleLogout();
+          alert("Sessão expirada por inatividade (mais de 3 horas). Por favor, faça login novamente.");
+        }
+      }, 60000);
+
       // Subscribe to eviction
       const unsubscribe = api.subscribeToEviction(employeeId, deviceId, () => {
         setLoginError('Sua sessão foi encerrada porque este usuário conectou em outro dispositivo.');
         handleLogout();
       });
-      return () => unsubscribe();
+      return () => {
+        unsubscribe();
+        window.removeEventListener('click', updateActivity);
+        window.removeEventListener('keydown', updateActivity);
+        window.removeEventListener('touchstart', updateActivity);
+        clearInterval(inactivityInterval);
+      };
     } else {
       // Force logout if not today or no login time
       handleLogout();
@@ -83,6 +113,7 @@ export default function App() {
     localStorage.removeItem('pos_employee_name');
     localStorage.removeItem('pos_login_time');
     localStorage.removeItem('pos_employee_id');
+    localStorage.removeItem('pos_last_activity');
   };
 
   // Define route protection component

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
   Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut,
-  FileSpreadsheet, Download, Upload, TableProperties, Calculator, PlusCircle
+  FileSpreadsheet, Download, Upload, TableProperties, Calculator, PlusCircle, RefreshCw, TrendingUp
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -848,10 +848,15 @@ function History() {
   const [historyEndDate, setHistoryEndDate] = useState('');
 
   // Sub Tabs
-  const [subTab, setSubTab] = useState<'summary' | 'detailed' | 'products' | 'cashier' | 'orders' | 'bank' | 'team'>('summary');
+  const [subTab, setSubTab] = useState<'summary' | 'detailed' | 'products' | 'cashier' | 'dre' | 'orders' | 'bank' | 'team'>('summary');
   const [viewDetailsOrder, setViewDetailsOrder] = useState<any>(null);
   const [selectedBankSession, setSelectedBankSession] = useState<any>(null);
 
+  // DRE State
+  const [dreData, setDreData] = useState<any>(null);
+  const [isDreLoading, setIsDreLoading] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({ description: '', category: 'operacional', amount: '', expense_date: new Date().toISOString().split('T')[0] });
+  
   // Products tab sort
   const [productSort, setProductSort] = useState<{ field: 'name' | 'quantity' | 'revenue', dir: 'asc' | 'desc' }>({ field: 'revenue', dir: 'desc' });
   const toggleProductSort = (field: 'name' | 'quantity' | 'revenue') => {
@@ -864,6 +869,24 @@ function History() {
   // Detailed View State
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [drillDownModal, setDrillDownModal] = useState<{type: 'day' | 'gross' | 'cmv' | 'net', date: string, data: any} | null>(null);
+
+  const handleReopenOrder = async (orderId: number) => {
+    const pin = window.prompt('Digite o PIN de Gerente para reabrir a comanda:');
+    if (!pin) return;
+    try {
+      const isValid = await api.verifyAdminPin(pin);
+      if (!isValid) {
+        alert('PIN incorreto ou sem permissão de Gerente.');
+        return;
+      }
+      await api.reopenOrder(orderId);
+      alert('Comanda reaberta com sucesso! Ela voltou para a tela do garçom para correção.');
+      setSelectedSession(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao reabrir comanda.');
+    }
+  };
 
   // Daily Stats grouping
   const dailyStats = useMemo(() => {
@@ -891,7 +914,7 @@ function History() {
       if (periodStart && dateRaw < periodStart) return;
       if (periodEnd && dateRaw > periodEnd) return;
       const date = dateRaw.toLocaleDateString('pt-BR');
-      if (!statsMap[date]) statsMap[date] = { date, gross: 0, cmv: 0, debit: 0, credit: 0, pix: 0, cashier: 0, orders: [], items: [], transactions: [] };
+      if (!statsMap[date]) statsMap[date] = { date, gross: 0, cmv: 0, cash: 0, debit: 0, credit: 0, pix: 0, cashier: 0, orders: [], items: [], transactions: [] };
 
       let orderGross = 0;
       let orderCmv = 0;
@@ -911,20 +934,21 @@ function History() {
     data.transactions.forEach((tx: any) => {
       const dateString = new Date(tx.created_at).toLocaleDateString('pt-BR');
       if (!statsMap[dateString]) {
-         statsMap[dateString] = { date: dateString, gross: 0, cmv: 0, card: 0, pix: 0, cashier: 0, orders: [], items: [], transactions: [] };
+         statsMap[dateString] = { date: dateString, gross: 0, cmv: 0, cash: 0, debit: 0, credit: 0, pix: 0, cashier: 0, orders: [], items: [], transactions: [] };
       }
       statsMap[dateString].transactions.push(tx);
-      if (tx.method === 'debit') statsMap[dateString].debit += Number(tx.amount || 0);
-      if (tx.method === 'credit') statsMap[dateString].credit += Number(tx.amount || 0);
-      if (tx.method === 'card') statsMap[dateString].credit += Number(tx.amount || 0); // legado
-      if (tx.method === 'pix') statsMap[dateString].pix += Number(tx.amount || 0);
+      if (tx.method === 'cash') statsMap[dateString].cash = (statsMap[dateString].cash || 0) + Number(tx.amount || 0);
+      if (tx.method === 'debit') statsMap[dateString].debit = (statsMap[dateString].debit || 0) + Number(tx.amount || 0);
+      if (tx.method === 'credit') statsMap[dateString].credit = (statsMap[dateString].credit || 0) + Number(tx.amount || 0);
+      if (tx.method === 'card') statsMap[dateString].credit = (statsMap[dateString].credit || 0) + Number(tx.amount || 0); // legado
+      if (tx.method === 'pix') statsMap[dateString].pix = (statsMap[dateString].pix || 0) + Number(tx.amount || 0);
     });
 
     data.cashier_sessions.forEach((session: any) => {
       if (session.closed_at) {
         const dateString = new Date(session.closed_at).toLocaleDateString('pt-BR');
         if (!statsMap[dateString]) {
-           statsMap[dateString] = { date: dateString, gross: 0, cmv: 0, card: 0, pix: 0, cashier: 0, orders: [], items: [], transactions: [] };
+           statsMap[dateString] = { date: dateString, gross: 0, cmv: 0, cash: 0, debit: 0, credit: 0, pix: 0, cashier: 0, orders: [], items: [], transactions: [] };
         }
         statsMap[dateString].cashier += Number(session.final_balance || 0);
       }
@@ -971,13 +995,46 @@ function History() {
         }
       }
       
-      const [res, sett] = await Promise.all([api.getGeneralHistory(isoStart, isoEnd), api.getSettings()]);
+      const [res, sett, dreRes] = await Promise.all([
+        api.getGeneralHistory(isoStart, isoEnd), 
+        api.getSettings(),
+        api.getDRE(isoStart || '1970-01-01', isoEnd || '2100-01-01')
+      ]);
       setData(res);
       setSettings(sett);
+      setDreData(dreRes);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expenseForm.description || !expenseForm.amount || !expenseForm.expense_date) return;
+    try {
+      await api.addExpense({
+        ...expenseForm,
+        amount: parseFloat(expenseForm.amount)
+      });
+      alert('Despesa registrada!');
+      setExpenseForm(prev => ({ ...prev, description: '', amount: '' }));
+      loadData();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao registrar despesa');
+    }
+  };
+
+  const handleDeleteExpense = async (id: number) => {
+    if (!confirm('Deseja excluir esta despesa?')) return;
+    try {
+      await api.deleteExpense(id);
+      loadData();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir');
     }
   };
 
@@ -1135,6 +1192,7 @@ function History() {
         <button onClick={() => setSubTab('team')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'team' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Taxa / Equipe</button>
         <button onClick={() => setSubTab('products')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'products' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Produtos Vendidos</button>
         <button onClick={() => setSubTab('cashier')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'cashier' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Sessões de Caixa</button>
+        <button onClick={() => setSubTab('dre')} className={`px-5 py-2 font-medium whitespace-nowrap transition-colors rounded-lg ${subTab === 'dre' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Movimentação (DRE)</button>
       </div>
 
       {/* Date Filters */}
@@ -1167,16 +1225,17 @@ function History() {
                       <th className="px-4 py-3">Dia (Data)</th>
                       <th className="px-4 py-3 text-right">Vendido Bruto</th>
                       <th className="px-4 py-3 text-right text-xs">CMV</th>
+                      <th className="px-4 py-3 text-right text-xs text-emerald-400">Dinheiro</th>
                       <th className="px-4 py-3 text-right text-xs text-sky-400">Débito</th>
                       <th className="px-4 py-3 text-right text-xs text-purple-400">Crédito</th>
                       <th className="px-4 py-3 text-right text-xs text-teal-400">Pix</th>
-                      <th className="px-4 py-3 text-right text-xs text-emerald-400">Saldo Caixa</th>
+                      <th className="px-4 py-3 text-right text-xs text-slate-400">Saldo Caixa (Fundo+Venda)</th>
                       <th className="px-4 py-3 text-right">Valor Líquido (Lucro)</th>
                     </tr>
                  </thead>
                  <tbody className="divide-y divide-slate-800">
-                    {dailyStats.filter((d: any) => d.gross > 0 || d.cmv > 0 || (d.debit||0) > 0 || (d.credit||0) > 0 || (d.pix||0) > 0 || (d.cashier||0) > 0).length === 0 && <tr><td colSpan={9} className="text-center py-6 text-slate-500">Nenhuma movimentação no período.</td></tr>}
-                    {dailyStats.filter((d: any) => d.gross > 0 || d.cmv > 0 || (d.debit||0) > 0 || (d.credit||0) > 0 || (d.pix||0) > 0 || (d.cashier||0) > 0).map((day: any) => {
+                    {dailyStats.filter((d: any) => d.gross > 0 || d.cmv > 0 || (d.cash||0) > 0 || (d.debit||0) > 0 || (d.credit||0) > 0 || (d.pix||0) > 0 || (d.cashier||0) > 0).length === 0 && <tr><td colSpan={10} className="text-center py-6 text-slate-500">Nenhuma movimentação no período.</td></tr>}
+                    {dailyStats.filter((d: any) => d.gross > 0 || d.cmv > 0 || (d.cash||0) > 0 || (d.debit||0) > 0 || (d.credit||0) > 0 || (d.pix||0) > 0 || (d.cashier||0) > 0).map((day: any) => {
                       const net = day.gross - day.cmv;
                       return (
                         <tr key={day.date} className="hover:bg-slate-800/30 transition-colors">
@@ -1198,6 +1257,9 @@ function History() {
                           >
                             R$ {day.cmv.toFixed(2)}
                           </td>
+                          <td className="px-4 py-4 text-right text-emerald-400/80 font-medium">
+                            R$ {(day.cash || 0).toFixed(2)}
+                          </td>
                           <td className="px-4 py-4 text-right text-sky-400/80 font-medium">
                             R$ {(day.debit || 0).toFixed(2)}
                           </td>
@@ -1207,7 +1269,7 @@ function History() {
                           <td className="px-4 py-4 text-right text-teal-400/80 font-medium">
                             R$ {(day.pix || 0).toFixed(2)}
                           </td>
-                          <td className="px-4 py-4 text-right text-emerald-400 font-bold bg-emerald-500/5">
+                          <td className="px-4 py-4 text-right text-slate-400 font-bold bg-slate-800/20">
                             R$ {(day.cashier || 0).toFixed(2)}
                           </td>
                           <td 
@@ -1349,6 +1411,119 @@ function History() {
                  </tbody>
                </table>
              </div>
+          )}
+
+          {subTab === 'dre' && (
+            <div className="space-y-6">
+              {isDreLoading ? (
+                <div className="text-center py-10 text-slate-400">Carregando dados da Movimentação...</div>
+              ) : dreData ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                      <div className="text-sm text-slate-400 mb-1">Receita Bruta (Entradas)</div>
+                      <div className="text-2xl font-bold text-blue-400">R$ {dreData.revenue.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                      <div className="text-sm text-slate-400 mb-1">CMV (Custo Mercadorias)</div>
+                      <div className="text-2xl font-bold text-red-400">- R$ {dreData.cmv.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                      <div className="text-sm text-slate-400 mb-1">Pagamentos Funcionários</div>
+                      <div className="text-2xl font-bold text-amber-400">- R$ {dreData.employeesExpense.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                      <div className="text-sm text-slate-400 mb-1">Compras de Estoque</div>
+                      <div className="text-2xl font-bold text-orange-400">- R$ {dreData.totalPurchases.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                      <div className="text-sm text-slate-400 mb-1">Despesas Operacionais</div>
+                      <div className="text-2xl font-bold text-red-300">- R$ {dreData.operationalExpense.toFixed(2)}</div>
+                    </div>
+                    <div className="col-span-1 md:col-span-2 lg:col-span-3 bg-slate-900 border border-slate-700 rounded-xl p-4 flex items-center justify-between">
+                      <div>
+                        <div className="text-sm text-slate-400 mb-1">Lucro Líquido do Período</div>
+                        <div className="text-sm text-slate-500">Receita - (CMV + Pagamentos + Compras + Operacional)</div>
+                      </div>
+                      <div className={`text-4xl font-black ${(dreData.revenue - dreData.cmv - dreData.employeesExpense - dreData.totalPurchases - dreData.operationalExpense) >= 0 ? 'text-emerald-400' : 'text-red-500'}`}>
+                        R$ {(dreData.revenue - dreData.cmv - dreData.employeesExpense - dreData.totalPurchases - dreData.operationalExpense).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
+                    <div className="lg:col-span-1 bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+                      <h3 className="text-lg font-bold text-white mb-4">Registrar Despesa / Saída</h3>
+                      <form onSubmit={handleSaveExpense} className="space-y-4">
+                        <div>
+                          <label className="block text-sm text-slate-400 mb-1">Data</label>
+                          <input type="date" required value={expenseForm.expense_date} onChange={e => setExpenseForm({...expenseForm, expense_date: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:border-blue-500" />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-slate-400 mb-1">Categoria</label>
+                          <select required value={expenseForm.category} onChange={e => setExpenseForm({...expenseForm, category: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:border-blue-500">
+                            <option value="funcionario">Pagamento Funcionário (Diária/Vale)</option>
+                            <option value="operacional">Despesa Operacional (Luz, Água, Aluguel)</option>
+                            <option value="outros">Outros</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm text-slate-400 mb-1">Descrição</label>
+                          <input type="text" required placeholder="Ex: Diária do João" value={expenseForm.description} onChange={e => setExpenseForm({...expenseForm, description: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:border-blue-500" />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-slate-400 mb-1">Valor (R$)</label>
+                          <input type="number" step="0.01" required min="0" placeholder="0.00" value={expenseForm.amount} onChange={e => setExpenseForm({...expenseForm, amount: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:border-blue-500" />
+                        </div>
+                        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-colors">Registrar Saída</button>
+                      </form>
+                    </div>
+
+                    <div className="lg:col-span-2 bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+                      <div className="p-4 bg-slate-800/40 border-b border-slate-800">
+                        <h3 className="font-bold text-white">Histórico de Saídas (Período)</h3>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm min-w-[500px]">
+                          <thead className="bg-slate-800/50 text-slate-400 uppercase">
+                            <tr>
+                              <th className="px-4 py-3">Data</th>
+                              <th className="px-4 py-3">Categoria</th>
+                              <th className="px-4 py-3">Descrição</th>
+                              <th className="px-4 py-3 text-right">Valor</th>
+                              <th className="px-4 py-3 text-center">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800">
+                            {dreData.expensesList?.length === 0 ? (
+                              <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Nenhuma despesa registrada neste período.</td></tr>
+                            ) : (
+                              dreData.expensesList?.map((exp: any) => (
+                                <tr key={exp.id} className="hover:bg-slate-800/30 transition-colors">
+                                  <td className="px-4 py-3">{new Date(exp.expense_date + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`px-2 py-1 rounded text-xs ${exp.category === 'funcionario' ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
+                                      {exp.category.toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-200">{exp.description}</td>
+                                  <td className="px-4 py-3 text-right font-bold text-red-400">- R$ {Number(exp.amount).toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <button onClick={() => handleDeleteExpense(exp.id)} className="text-slate-500 hover:text-red-500 p-1 transition-colors" title="Excluir">
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
           )}
 
           {subTab === 'orders' && (
@@ -1743,11 +1918,16 @@ function History() {
           acc + (o.items || []).reduce((s: number, i: any) => s + (i.price_at_time * i.quantity), 0), 0);
         const sessionNet = selectedSession.net;
 
-        // Map order_id → transactions
         const txByOrder: Record<number, any[]> = {};
+        const sessionTxsByMethod: Record<string, number> = { cash: 0, debit: 0, credit: 0, pix: 0 };
         (data.transactions || []).forEach((tx: any) => {
           if (!txByOrder[tx.order_id]) txByOrder[tx.order_id] = [];
           txByOrder[tx.order_id].push(tx);
+          if (sessionOrders.some((o: any) => o.id === tx.order_id)) {
+            if (tx.method === 'card') sessionTxsByMethod.credit += Number(tx.amount);
+            else if (sessionTxsByMethod[tx.method] !== undefined) sessionTxsByMethod[tx.method] += Number(tx.amount);
+            else sessionTxsByMethod.cash += Number(tx.amount);
+          }
         });
 
         const methodLabel: Record<string, string> = { cash: 'Dinheiro', debit: 'Débito', credit: 'Crédito', card: 'Crédito', pix: 'PIX' };
@@ -1786,6 +1966,13 @@ function History() {
                             <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded text-xs font-bold">#{order.pulseira}</span>
                             <span className="font-medium text-slate-200">{order.customer_name || 'Sem Nome'}</span>
                           </div>
+                          <button
+                            onClick={() => handleReopenOrder(order.id)}
+                            className="text-xs text-amber-500 hover:text-amber-400 mt-1 flex items-center gap-1 transition-colors self-start"
+                          >
+                            <RefreshCw size={12} />
+                            Reabrir Comanda (Corrigir Pgto)
+                          </button>
                         </div>
                         <div className="text-right text-sm space-y-0.5">
                           <div className="flex justify-between gap-4">
@@ -1853,8 +2040,8 @@ function History() {
                             </span>
                           ))}
                         </div>
-                        {taxa > 0 && (
-                          <span className="text-xs text-amber-400 font-medium whitespace-nowrap ml-2">Taxa R$ {taxa.toFixed(2)}</span>
+                        {taxaEsperada > 0 && (
+                          <span className="text-xs text-amber-400 font-medium whitespace-nowrap ml-2">Taxa R$ {taxaEsperada.toFixed(2)}</span>
                         )}
                       </div>
 
@@ -1863,10 +2050,18 @@ function History() {
                   );
                 })}
               </div>
-              <div className="p-4 border-t border-slate-800 grid grid-cols-3 gap-3 text-center text-sm">
-                <div><p className="text-slate-500 text-xs mb-1">Comandas Pagas</p><p className="font-bold text-white">{sessionOrders.length}</p></div>
-                <div><p className="text-slate-500 text-xs mb-1">Produtos Vendidos</p><p className="font-bold text-white">R$ {sessionGross.toFixed(2)}</p></div>
-                <div><p className="text-slate-500 text-xs mb-1">Valor Líquido</p><p className="font-bold text-emerald-400">R$ {sessionNet.toFixed(2)}</p></div>
+              <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+                <div className="grid grid-cols-3 gap-3 text-center text-sm mb-4">
+                  <div><p className="text-slate-500 text-xs mb-1">Comandas Pagas</p><p className="font-bold text-white">{sessionOrders.length}</p></div>
+                  <div><p className="text-slate-500 text-xs mb-1">Produtos Vendidos</p><p className="font-bold text-white">R$ {sessionGross.toFixed(2)}</p></div>
+                  <div><p className="text-slate-500 text-xs mb-1">Valor Líquido</p><p className="font-bold text-emerald-400">R$ {sessionNet.toFixed(2)}</p></div>
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-center text-xs border-t border-slate-700/50 pt-3">
+                  <div className="bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20"><p className="text-emerald-400/70 font-bold mb-0.5">DINHEIRO</p><p className="font-bold text-emerald-400">R$ {sessionTxsByMethod.cash.toFixed(2)}</p></div>
+                  <div className="bg-cyan-500/10 p-2 rounded-lg border border-cyan-500/20"><p className="text-cyan-400/70 font-bold mb-0.5">PIX</p><p className="font-bold text-cyan-400">R$ {sessionTxsByMethod.pix.toFixed(2)}</p></div>
+                  <div className="bg-blue-500/10 p-2 rounded-lg border border-blue-500/20"><p className="text-blue-400/70 font-bold mb-0.5">DÉBITO</p><p className="font-bold text-blue-400">R$ {sessionTxsByMethod.debit.toFixed(2)}</p></div>
+                  <div className="bg-purple-500/10 p-2 rounded-lg border border-purple-500/20"><p className="text-purple-400/70 font-bold mb-0.5">CRÉDITO</p><p className="font-bold text-purple-400">R$ {sessionTxsByMethod.credit.toFixed(2)}</p></div>
+                </div>
               </div>
             </div>
           </div>
@@ -2230,6 +2425,13 @@ function Team() {
   const [historyEndDate, setHistoryEndDate] = useState('');
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
+  // Sales Rank State
+  const [salesRankData, setSalesRankData] = useState<any[]>([]);
+  const [salesRankPeriod, setSalesRankPeriod] = useState<'today' | 'month' | 'custom'>('today');
+  const [salesRankStart, setSalesRankStart] = useState('');
+  const [salesRankEnd, setSalesRankEnd] = useState('');
+  const [isSalesRankLoading, setIsSalesRankLoading] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -2246,6 +2448,49 @@ function Team() {
       console.error(err);
     }
   };
+
+  const loadSalesRanking = async () => {
+    setIsSalesRankLoading(true);
+    try {
+      let isoStart: string | undefined;
+      let isoEnd: string | undefined;
+      const now = new Date();
+      
+      if (salesRankPeriod === 'today') {
+        const d = new Date(now);
+        d.setHours(0,0,0,0);
+        isoStart = d.toISOString();
+      } else if (salesRankPeriod === 'month') {
+        const d = new Date(now.getFullYear(), now.getMonth(), 1);
+        isoStart = d.toISOString();
+      } else if (salesRankPeriod === 'custom') {
+        if (salesRankStart) {
+          const d = new Date(salesRankStart);
+          const userOffset = d.getTimezoneOffset() * 60000;
+          isoStart = new Date(d.getTime() + userOffset).toISOString();
+        }
+        if (salesRankEnd) {
+          const d = new Date(salesRankEnd);
+          const userOffset = d.getTimezoneOffset() * 60000;
+          d.setTime(d.getTime() + userOffset);
+          d.setHours(23,59,59,999);
+          isoEnd = d.toISOString();
+        }
+      }
+      
+      const res = await api.getEmployeeSalesRanking(isoStart, isoEnd);
+      setSalesRankData(res);
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao buscar ranking de vendas');
+    } finally {
+      setIsSalesRankLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSalesRanking();
+  }, [salesRankPeriod, salesRankStart, salesRankEnd]);
 
   const loadHistory = async (target: {type: 'employee' | 'customer', id: any}, period: string, start?: string, end?: string) => {
     setIsHistoryLoading(true);
@@ -2358,12 +2603,18 @@ function Team() {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const rawPulseira = (formData.get('fixed_pulseira') as string || '').trim();
+    const migratePulseiraRaw = (formData.get('migrate_pulseira') as string || '').trim();
 
     // Confirmação da pulseira digitada
     if (rawPulseira) {
       const padded = rawPulseira.padStart(4, '0');
       const ok = window.confirm(`Confirma a Pulseira Reservada digitada?\n\nNúmero: #${padded}\n\nSe estiver incorreto, clique em Cancelar e corrija.`);
       if (!ok) return;
+    }
+
+    if (migratePulseiraRaw && !rawPulseira) {
+      alert('Para migrar uma comanda, você deve definir qual será a Pulseira Reservada (Fixa) deste cliente.');
+      return;
     }
 
     const data: any = {
@@ -2373,13 +2624,23 @@ function Team() {
     };
 
     try {
-      if (editingCustomer?.id) {
-        await api.saveCustomer({ ...data, id: editingCustomer.id });
-        alert('Cliente atualizado com sucesso!');
+      let customerId = editingCustomer?.id;
+      if (customerId) {
+        await api.saveCustomer({ ...data, id: customerId });
       } else {
-        await api.createCustomer(data);
-        alert('Cliente cadastrado com sucesso!');
+        const newCustomer = await api.createCustomer(data);
+        customerId = newCustomer.id;
       }
+
+      if (migratePulseiraRaw && rawPulseira) {
+        const paddedTemp = migratePulseiraRaw.padStart(4, '0');
+        const paddedFixed = rawPulseira.padStart(4, '0');
+        await api.migrateOrderToFixedCustomer(paddedTemp, customerId, paddedFixed, data.name, data.phone);
+        alert(`Cliente salvo e comanda #${paddedTemp} migrada com sucesso para a pulseira fixa #${paddedFixed}!`);
+      } else {
+        alert(editingCustomer ? 'Cliente atualizado com sucesso!' : 'Cliente cadastrado com sucesso!');
+      }
+
       setIsCustomerModalOpen(false);
       setEditingCustomer(null);
       loadData();
@@ -2498,69 +2759,80 @@ function Team() {
         </table>
       </div>
 
-      {/* Fixed Customers Section */}
+      {/* Employee Sales Ranking Section */}
       <div className="mt-12">
         <div className="flex justify-between items-center mb-4">
            <div>
              <h2 className="text-xl font-bold flex items-center gap-2">
-               <ShoppingCart className="text-emerald-400" /> Clientes com Pulseira Fixa
+               <TrendingUp className="text-blue-400" /> Ranking de Vendas por Funcionário
              </h2>
-             <p className="text-sm text-slate-500">Clientes recorrentes vinculados a números permanentes.</p>
+             <p className="text-sm text-slate-500">Histórico de vendas e produtos por garçom/atendente.</p>
            </div>
-           <button
-             onClick={() => { setEditingCustomer(null); setIsCustomerModalOpen(true); }}
-             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl font-medium transition-all shadow-lg shadow-emerald-500/20"
-           >
-             <Plus size={18} />
-             Novo Cliente
-           </button>
+           
+           <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl p-1">
+             <button
+               onClick={() => setSalesRankPeriod('today')}
+               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${salesRankPeriod === 'today' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+             >
+               Hoje
+             </button>
+             <button
+               onClick={() => setSalesRankPeriod('month')}
+               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${salesRankPeriod === 'month' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+             >
+               Mês
+             </button>
+           </div>
         </div>
 
         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden overflow-x-auto">
           <table className="w-full text-left text-sm min-w-[500px]">
             <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
               <tr>
-                <th className="px-6 py-4">Nome</th>
-                <th className="px-6 py-4">Telefone</th>
-                <th className="px-6 py-4 text-center">Pulseira Reservada</th>
-                <th className="px-6 py-4 text-right">Ações</th>
+                <th className="px-6 py-4 w-16 text-center">#</th>
+                <th className="px-6 py-4">Funcionário</th>
+                <th className="px-6 py-4 text-center">Itens Vendidos</th>
+                <th className="px-6 py-4 text-right">Valor Total (R$)</th>
+                <th className="px-6 py-4 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {fixedCustomers.map(cust => (
-                <tr key={cust.id} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="px-6 py-4 font-medium text-slate-200">{cust.name}</td>
-                  <td className="px-6 py-4 text-slate-400">{cust.phone || '-'}</td>
-                  <td className="px-6 py-4 text-center font-mono text-emerald-400 font-bold">{cust.fixed_pulseira}</td>
-                  <td className="px-6 py-4 text-right flex justify-end gap-2">
-                    <button
-                      onClick={() => openHistory(cust, 'customer')}
-                      className="text-amber-400 hover:text-amber-300 p-2 hover:bg-amber-500/10 rounded-lg transition-colors"
-                      title="Histórico de Consumo"
-                    >
-                      <ClipboardList size={16} />
-                    </button>
-                    <button
-                      onClick={() => { setEditingCustomer(cust); setIsCustomerModalOpen(true); }}
-                      className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
-                      title="Editar Cliente"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleUnfixCustomer(cust.id)}
-                      className="text-slate-400 hover:text-red-400 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
-                      title="Desvincular Pulseira"
-                    >
-                      <XCircle size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {fixedCustomers.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-slate-600 italic">Nenhum cliente com pulseira fixa no momento.</td>
-                </tr>
+              {isSalesRankLoading ? (
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">Carregando ranking...</td></tr>
+              ) : salesRankData.length === 0 ? (
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-600 italic">Nenhuma venda registrada neste período.</td></tr>
+              ) : (
+                salesRankData.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="px-6 py-4 text-center">
+                      {idx === 0 ? <span className="text-2xl">🥇</span> : 
+                       idx === 1 ? <span className="text-2xl">🥈</span> : 
+                       idx === 2 ? <span className="text-2xl">🥉</span> : 
+                       <span className="text-slate-500 font-bold">{idx + 1}º</span>}
+                    </td>
+                    <td className="px-6 py-4 font-medium text-slate-200">{row.emp.name}</td>
+                    <td className="px-6 py-4 text-center text-slate-300 font-mono">{row.itemsCount}</td>
+                    <td className="px-6 py-4 text-right font-mono text-emerald-400 font-bold">R$ {row.totalAmount.toFixed(2)}</td>
+                    <td className="px-6 py-4 text-center">
+                      {row.emp.id ? (
+                        <button
+                          onClick={() => {
+                             setHistoryTarget({ type: 'employee', id: row.emp.id, name: row.emp.name });
+                             setHistoryPeriod(salesRankPeriod);
+                             // History modal automatically loads on effect
+                             setIsHistoryLoading(true);
+                          }}
+                          className="text-amber-400 hover:text-amber-300 p-2 hover:bg-amber-500/10 rounded-lg transition-colors inline-flex items-center gap-1"
+                          title="Ver Histórico Completo de Vendas"
+                        >
+                          <ClipboardList size={16} /> <span className="text-xs">Detalhes</span>
+                        </button>
+                      ) : (
+                        <span className="text-slate-600 text-xs italic">Não disponível</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -2653,6 +2925,15 @@ function Team() {
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-1">Pulseira Reservada</label>
                 <input name="fixed_pulseira" defaultValue={editingCustomer?.fixed_pulseira} maxLength={4} placeholder="Ex: 0042" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none font-mono" />
+              </div>
+              <div className="pt-2">
+                <label className="block text-sm font-medium text-slate-400 mb-1 flex items-center gap-2">
+                  <span>Trazer Comanda Aberta <span className="text-slate-600 text-xs">(Opcional)</span></span>
+                </label>
+                <input name="migrate_pulseira" maxLength={4} placeholder="Nº de uma pulseira aberta (Ex: 0015)" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-amber-500 outline-none font-mono text-amber-400" />
+                <p className="text-xs text-slate-500 mt-1">
+                  Se preenchido, migra o consumo desta pulseira aberta para a Pulseira Reservada do cliente, e a pulseira antiga deixa de existir.
+                </p>
               </div>
               <div className="flex justify-end gap-3 mt-6">
                 <button type="button" onClick={() => { setIsCustomerModalOpen(false); setEditingCustomer(null); }} className="px-4 py-2 text-slate-400 hover:text-white">Cancelar</button>

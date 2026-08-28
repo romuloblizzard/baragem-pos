@@ -410,6 +410,19 @@ export const api = {
   },
 
   // Orders
+  migrateOrderToFixedCustomer: async (tempPulseira: string, customerId: number, fixedPulseira: string, customerName: string, customerPhone: string) => {
+    const { data: orders, error: orderError } = await supabase.from('orders').select('id').eq('pulseira', tempPulseira).eq('status', 'open');
+    if (orderError) throw orderError;
+    if (!orders || orders.length === 0) throw new Error(`Nenhuma comanda aberta encontrada na pulseira #${tempPulseira}`);
+    const orderId = orders[0].id;
+    const { data: fixedOrders, error: fixedError } = await supabase.from('orders').select('id').eq('pulseira', fixedPulseira).eq('status', 'open').not('id', 'eq', orderId);
+    if (fixedError) throw fixedError;
+    if (fixedOrders && fixedOrders.length > 0) throw new Error(`A pulseira fixa #${fixedPulseira} já possui outra comanda aberta.`);
+    const { error: updateError } = await supabase.from('orders').update({ pulseira: fixedPulseira, customer_id: customerId, customer_name: customerName, customer_phone: customerPhone || null }).eq('id', orderId);
+    if (updateError) throw updateError;
+    return true;
+  },
+
   getNextPulseira: async (): Promise<string> => {
     const { data: orders } = await supabase
       .from('orders')
@@ -426,7 +439,7 @@ export const api = {
   getOpenOrdersSummary: async () => {
     const { data: orders, error } = await supabase
       .from('orders')
-      .select('id, pulseira, customer_name, created_at')
+      .select('id, pulseira, customer_name, created_at, discount_percentage, discount_cap')
       .eq('status', 'open')
       .not('id', 'in', '(6,7)')
       .order('pulseira', { ascending: true });
@@ -440,17 +453,35 @@ export const api = {
       .in('order_id', orderIds);
     if (itemsError) throw itemsError;
 
+    const { data: transactions, error: txError } = await supabase
+      .from('transactions')
+      .select('id, order_id, amount, method, created_at')
+      .in('order_id', orderIds);
+    if (txError) throw txError;
+
+    const serviceFeePct = 0.10;
+
     return orders.map((order: any) => {
       const orderItems = (items || []).filter(i => i.order_id === order.id);
-      const total = orderItems.reduce((acc: number, i: any) => acc + (i.price_at_time * i.quantity), 0);
+      const consumption = orderItems.reduce((acc: number, i: any) => acc + (i.price_at_time * i.quantity), 0);
       const itemsCount = orderItems.reduce((acc: number, i: any) => acc + i.quantity, 0);
+      
+      const discount = Math.min(consumption, order.discount_cap || 0) * ((order.discount_percentage || 0) / 100);
+      const service = (consumption - discount) * serviceFeePct;
+      
+      const orderTxs = (transactions || []).filter(t => t.order_id === order.id);
+      const alreadyPaid = orderTxs.reduce((acc: number, t: any) => acc + Number(t.amount), 0);
+      
+      const finalRemaining = Math.max(0, consumption - discount + service - alreadyPaid);
+
       return {
         id: order.id,
         pulseira: order.pulseira,
         customer_name: order.customer_name,
-        total,
+        total: finalRemaining,
         items_count: itemsCount,
-        created_at: order.created_at
+        created_at: order.created_at,
+        transactions: orderTxs
       };
     });
   },
@@ -518,7 +549,18 @@ export const api = {
     }));
   },
   getOrder: async (pulseira: string) => {
-    const { data: order, error } = await supabase.from('orders').select('*').eq('pulseira', pulseira).eq('status', 'open').maybeSingle();
+    const padded = pulseira.padStart(3, '0');
+    // pulseira can be the display pulseira OR the internal order ID if they typed that.
+    const searchId = !isNaN(Number(pulseira)) ? Number(pulseira) : 0;
+    
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*')
+      .or(`pulseira.eq.${pulseira},pulseira.eq.${padded},id.eq.${searchId}`)
+      .eq('status', 'open')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
     if (error) throw error;
     if (!order) throw new Error('Order not found');
 
@@ -703,6 +745,27 @@ export const api = {
     if (error) throw error;
     return { success: true };
   },
+  refundOrderItem: async (orderId: number, itemId: number, waiterPin: string) => {
+    // 1. Verify waiter PIN
+    const { data: emp, error: empError } = await supabase.from('employees').select('id, name').eq('pin', waiterPin).single();
+    if (empError || !emp) throw new Error('PIN inválido');
+
+    // 2. Get item details
+    const { data: item } = await supabase.from('order_items').select('*').eq('id', itemId).single();
+    if (!item) throw new Error('Item não encontrado');
+
+    // 3. Update to 0 and append ESTORNADO to attendant
+    const newAttendantName = item.attendant_name ? `${item.attendant_name} (Estorno: ${emp.name.split(' ')[0]})` : `Estorno: ${emp.name.split(' ')[0]}`;
+
+    const { error } = await supabase.from('order_items').update({
+       price_at_time: 0,
+       cost_at_time: 0,
+       attendant_name: newAttendantName
+    }).eq('id', itemId).eq('order_id', orderId);
+
+    if (error) throw error;
+    return { success: true };
+  },
   swapOrderItem: async (orderId: number, itemId: number, newProductId: number) => {
     const { data: product, error: prodError } = await supabase.from('products').select('*').eq('id', newProductId).single();
     if (prodError || !product) throw new Error('Product not found for swap');
@@ -818,6 +881,45 @@ export const api = {
     const { error } = await supabase.from('transactions').delete().eq('id', transactionId);
     if (error) throw error;
     return { success: true };
+  },
+
+  getEmployeeSalesRanking: async (startDate?: string, endDate?: string) => {
+    // 1. Get all employees to have a base list and their IDs for the "Detalhes" button
+    const { data: employees, error: empError } = await supabase.from('employees').select('id, name');
+    if (empError) throw empError;
+
+    // 2. Get all order_items in the period
+    let query = supabase.from('order_items').select('quantity, price_at_time, attendant_name, orders!inner(created_at)');
+    
+    if (startDate) query = query.gte('orders.created_at', startDate);
+    if (endDate) query = query.lte('orders.created_at', endDate);
+    
+    const { data: items, error: itemsError } = await query;
+    if (itemsError) throw itemsError;
+
+    // 3. Aggregate
+    const salesByAttendant: Record<string, { totalAmount: number, itemsCount: number, emp: any }> = {};
+    
+    for (const emp of employees || []) {
+      salesByAttendant[emp.name] = { totalAmount: 0, itemsCount: 0, emp };
+    }
+
+    for (const item of items || []) {
+      const name = item.attendant_name || 'Desconhecido';
+      // Ignore refund records (Estorno: ...) in the name
+      if (name.includes('Estorno')) continue;
+      
+      if (!salesByAttendant[name]) {
+        salesByAttendant[name] = { totalAmount: 0, itemsCount: 0, emp: { id: null, name } };
+      }
+      
+      salesByAttendant[name].itemsCount += item.quantity;
+      salesByAttendant[name].totalAmount += (item.quantity * item.price_at_time);
+    }
+
+    return Object.values(salesByAttendant)
+      .filter(r => r.itemsCount > 0 || r.emp.id !== null) // Keep employees with 0 sales, or unknown with sales
+      .sort((a, b) => b.totalAmount - a.totalAmount); // Sort desc
   },
 
   getEmployeeHistory: async (employeeId: string, startDate?: string, endDate?: string) => {
@@ -1148,6 +1250,63 @@ export const api = {
   },
 
   // Purchase Orders
+  // Expenses / DRE
+  getExpenses: async (startDate?: string, endDate?: string) => {
+    let q = supabase.from('expenses').select('*').order('expense_date', { ascending: false }).order('created_at', { ascending: false });
+    if (startDate) q = q.gte('expense_date', startDate.split('T')[0]);
+    if (endDate) q = q.lte('expense_date', endDate.split('T')[0]);
+    const { data, error } = await q;
+    if (error) {
+      console.error('getExpenses Error (Tabela pode nao existir ainda):', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  addExpense: async (expense: { description: string, category: string, amount: number, expense_date: string }) => {
+    const { data, error } = await supabase.from('expenses').insert(expense).select().single();
+    if (error) throw error;
+    return data;
+  },
+  
+  deleteExpense: async (id: number) => {
+    const { error } = await supabase.from('expenses').delete().eq('id', id);
+    if (error) throw error;
+    return { success: true };
+  },
+
+  getDRE: async (startDate: string, endDate: string) => {
+    // 1. Revenue (Transactions)
+    const { data: txs } = await supabase.from('transactions').select('amount').gte('created_at', startDate).lte('created_at', endDate);
+    const revenue = (txs || []).reduce((acc, tx) => acc + Number(tx.amount), 0);
+
+    // 2. CMV (Cost of goods sold) - from order_items in closed orders
+    // We only count items that were actually paid for (orders.status = paid)
+    const { data: items } = await supabase.from('order_items').select('quantity, cost_at_time, orders!inner(status, closed_at)')
+      .eq('orders.status', 'paid')
+      .gte('orders.closed_at', startDate)
+      .lte('orders.closed_at', endDate);
+    const cmv = (items || []).reduce((acc, item) => acc + (Number(item.quantity) * Number(item.cost_at_time)), 0);
+
+    // 3. Purchases
+    const { data: purchases } = await supabase.from('purchase_orders').select('total_amount').gte('created_at', startDate).lte('created_at', endDate);
+    const totalPurchases = (purchases || []).reduce((acc, p) => acc + Number(p.total_amount), 0);
+
+    // 4. Expenses (Employees, Operational, Others)
+    const expenses = await api.getExpenses(startDate, endDate);
+    const employeesExpense = expenses.filter(e => e.category === 'funcionario').reduce((acc, e) => acc + Number(e.amount), 0);
+    const operationalExpense = expenses.filter(e => e.category !== 'funcionario').reduce((acc, e) => acc + Number(e.amount), 0);
+
+    return {
+      revenue,
+      cmv,
+      totalPurchases,
+      employeesExpense,
+      operationalExpense,
+      expensesList: expenses
+    };
+  },
+
   getPurchaseOrders: async () => {
     const { data: orders, error } = await supabase
       .from('purchase_orders')
@@ -1474,6 +1633,19 @@ export const api = {
   },
 
   // Corrige o número da pulseira diretamente na comanda aberta
+  updateOrderCustomerName: async (orderId: number, newName: string) => {
+    const { error } = await supabase.from('orders').update({ customer_name: newName }).eq('id', orderId);
+    if (error) throw error;
+  },
+  verifyAdminPin: async (pin: string) => {
+    const { data, error } = await supabase.from('employees').select('id').eq('pin', pin).eq('role', 'admin').limit(1);
+    if (error) throw error;
+    return data && data.length > 0;
+  },
+  reopenOrder: async (orderId: number) => {
+    const { error } = await supabase.from('orders').update({ status: 'open', closed_at: null }).eq('id', orderId);
+    if (error) throw error;
+  },
   updateOrderPulseira: async (orderId: number, newPulseira: string) => {
     const padded = newPulseira.replace(/\D/g, '').padStart(4, '0');
     
