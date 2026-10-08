@@ -509,7 +509,7 @@ export default function Waiter() {
         alert('Produto esgotado (ingredientes insuficientes)');
         return;
       }
-    } else if (product.type === 'simple') {
+    } else if (product.type === 'simple' || product.type === 'fractional') {
       let available = product.stock;
       if (product.category_name === 'Garrafa') {
         // Only FULL bottles can be sold directly

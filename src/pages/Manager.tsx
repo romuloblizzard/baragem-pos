@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
   Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut,
-  FileSpreadsheet, Download, Upload, TableProperties, Calculator, PlusCircle, RefreshCw, TrendingUp
+  FileSpreadsheet, Download, Upload, TableProperties, Calculator, PlusCircle, RefreshCw, TrendingUp, Copy
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -3755,8 +3755,21 @@ function Products() {
                       <ClipboardList size={16} />
                     </button>
                     <button
+                      onClick={() => {
+                        // Create a copy of the product, strip the id, and append " (Cópia)" to the name
+                        const { id, ...copiedProduct } = product;
+                        setEditingProduct({ ...copiedProduct, name: copiedProduct.name + ' (Cópia)' });
+                        setIsModalOpen(true);
+                      }}
+                      className="text-emerald-400 hover:text-emerald-300 p-2 hover:bg-emerald-500/10 rounded-lg transition-colors"
+                      title="Duplicar Produto"
+                    >
+                      <Copy size={16} />
+                    </button>
+                    <button
                       onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
                       className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
+                      title="Editar Produto"
                     >
                       <Edit size={16} />
                     </button>
