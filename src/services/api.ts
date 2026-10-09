@@ -131,7 +131,7 @@ export const api = {
     return formattedProducts;
   },
   saveProduct: async (product: any) => {
-    const { ingredients, modifier_groups, batches, category_name, child_product_ids, observation, categories, ...productData } = product;
+    const { ingredients, modifier_groups, batches, category_name, child_product_ids, observation, categories, product_batches, ...productData } = product;
 
     // In case we want to explicitly save observation into productData
     if (observation !== undefined) {
@@ -143,6 +143,9 @@ export const api = {
     delete productData.ingredient_stock;
     delete productData.ingredient_unit;
     delete productData.ingredient_name;
+    delete productData.ingredient_category;
+    delete productData.ingredient_bottle_volume_ml;
+    delete productData.__is_calculated;
 
     let productId = product.id;
 

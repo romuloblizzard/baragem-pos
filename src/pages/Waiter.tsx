@@ -832,19 +832,22 @@ export default function Waiter() {
   };
 
   const filteredProducts = products.filter(p => {
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      // Bypasses hierarchy for quick search
-      const matchName = p.name?.toLowerCase().includes(term);
-      const isVariantMatching = p.parent_id && p.name?.toLowerCase().includes(term);
-      const isParentMatching = !p.parent_id && p.name?.toLowerCase().includes(term);
-      return matchName || isParentMatching || isVariantMatching;
-    }
-    
-    // Hide variations from main list
+    // 1. Never show products whose category is hidden from waiter
+    const cat = categories.find(c => c.id === p.category_id);
+    if (cat && cat.show_on_waiter === false) return false;
+
+    // 2. Hide variations from main list (we only show parents/simple products here)
     if (p.parent_id) return false;
 
-    // Filter by Hierarchy
+    // 3. Search Term Logic
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      const matchName = p.name?.toLowerCase().includes(term);
+      const hasMatchingChild = products.some(child => child.parent_id === p.id && child.name?.toLowerCase().includes(term));
+      return matchName || hasMatchingChild;
+    }
+    
+    // 4. Category Filter Logic
     if (selectedCategory !== null) {
       const sons = categories.filter(c => c.parent_id === selectedCategory);
       const hasSons = sons.length > 0;

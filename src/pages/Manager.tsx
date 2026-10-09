@@ -3137,9 +3137,9 @@ function Products() {
   const [stockVariations, setStockVariations] = useState<{ id: string, qty: number, size: number, totalPrice: number }[]>([]);
   const [purchaseUnit, setPurchaseUnit] = useState('');
   const [saleUnit, setSaleUnit] = useState('un');
-  const [editingPrice, setEditingPrice] = useState<{ id: number; field: 'price' | 'cost_price'; value: string } | null>(null);
+  const [editingPrice, setEditingPrice] = useState<{ id: number; field: 'price' | 'cost_price' | 'stock'; value: string } | null>(null);
 
-  const saveInlinePrice = async (product: any, field: 'price' | 'cost_price', rawValue: string) => {
+  const saveInlinePrice = async (product: any, field: 'price' | 'cost_price' | 'stock', rawValue: string) => {
     setEditingPrice(null);
     const value = parseFloat(rawValue) || 0;
     if (value === (product[field] || 0)) return;
@@ -3551,7 +3551,23 @@ function Products() {
       </div>
 
       <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-        <p className="text-sm font-medium text-slate-400 mb-3">Filtrar por Categoria:</p>
+        <div className="flex items-center gap-4 mb-3">
+          <p className="text-sm font-medium text-slate-400">Filtrar por Categoria:</p>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setUnselectedCategories([])}
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-blue-400 px-2 py-1 rounded border border-slate-700"
+            >
+              Marcar Todos
+            </button>
+            <button 
+              onClick={() => setUnselectedCategories(categories.filter(c => !c.parent_id).map(c => c.id))}
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-400 px-2 py-1 rounded border border-slate-700"
+            >
+              Limpar Todos
+            </button>
+          </div>
+        </div>
         <div className="flex flex-wrap gap-3">
           {categories.filter(c => !c.parent_id).map(cat => {
             const isSelected = !unselectedCategories.includes(cat.id);
@@ -3727,10 +3743,19 @@ function Products() {
                         </span>
                       </div>
                     ) : (
-                      <span className={`px-2 py-1 rounded text-xs font-bold ${product.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
-                        }`}>
-                        {product.stock} {product.unit}
-                      </span>
+                      editingPrice?.id === product.id && editingPrice.field === 'stock' ? (
+                        <input autoFocus type="number" min="0" step="0.001" value={editingPrice.value}
+                          onChange={e => { const v = e.target.value; setEditingPrice(p => p && { ...p, value: v }); }}
+                          onBlur={() => saveInlinePrice(product, 'stock', editingPrice.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(product, 'stock', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
+                          className="w-20 bg-slate-700 border border-purple-500 rounded px-2 py-0.5 text-emerald-400 text-sm font-bold outline-none"
+                        />
+                      ) : (
+                        <button onClick={() => setEditingPrice({ id: product.id, field: 'stock', value: String(product.stock || 0) })}
+                          className={`px-2 py-1 rounded text-xs font-bold hover:underline ${product.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                          {product.stock} {product.unit}
+                        </button>
+                      )
                     )}
                   </td>
                   <td className="px-6 py-4 text-right flex justify-end gap-2">
@@ -3842,10 +3867,19 @@ function Products() {
                       {variation.type === 'composition' ? (
                         <span className="text-slate-500">Calc.</span>
                       ) : (
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${variation.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
-                          }`}>
-                          {variation.stock} {variation.unit}
-                        </span>
+                        editingPrice?.id === variation.id && editingPrice.field === 'stock' ? (
+                          <input autoFocus type="number" min="0" step="0.001" value={editingPrice.value}
+                            onChange={e => { const v = e.target.value; setEditingPrice(p => p && { ...p, value: v }); }}
+                            onBlur={() => saveInlinePrice(variation, 'stock', editingPrice.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveInlinePrice(variation, 'stock', editingPrice.value); if (e.key === 'Escape') setEditingPrice(null); }}
+                            className="w-20 bg-slate-700 border border-purple-500 rounded px-2 py-0.5 text-emerald-400 text-sm font-bold outline-none"
+                          />
+                        ) : (
+                          <button onClick={() => setEditingPrice({ id: variation.id, field: 'stock', value: String(variation.stock || 0) })}
+                            className={`px-2 py-1 rounded text-xs font-bold hover:underline ${variation.stock <= 5 ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                            {variation.stock} {variation.unit}
+                          </button>
+                        )
                       )}
                     </td>
                     <td className="px-6 py-4 text-right flex justify-end gap-2">
