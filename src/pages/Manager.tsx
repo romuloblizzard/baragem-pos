@@ -3820,10 +3820,16 @@ function Products() {
     setModifierGroups(modifierGroups.filter((_, i) => i !== index));
   };
 
-  const updateModifierGroup = (index: number, field: string, value: any) => {
-    const newGroups = [...modifierGroups];
-    newGroups[index] = { ...newGroups[index], [field]: value };
-    setModifierGroups(newGroups);
+  const updateModifierGroup = (index: number, fieldOrObj: string | Record<string, any>, value?: any) => {
+    setModifierGroups(prev => {
+      const newGroups = [...prev];
+      if (typeof fieldOrObj === 'string') {
+        newGroups[index] = { ...newGroups[index], [fieldOrObj]: value };
+      } else {
+        newGroups[index] = { ...newGroups[index], ...fieldOrObj };
+      }
+      return newGroups;
+    });
   };
 
   const addModifierItem = (groupIndex: number) => {
@@ -5110,11 +5116,23 @@ function Products() {
                           <input 
                             type="number" 
                             min="1"
-                            value={group.max_select !== undefined ? group.max_select : 1} 
+                            value={group.max_select === undefined || group.max_select === null ? '' : group.max_select} 
                             onChange={(e) => {
-                              const val = Math.max(1, parseInt(e.target.value) || 1);
-                              updateModifierGroup(gIdx, 'max_select', val);
-                              updateModifierGroup(gIdx, 'min_select', val);
+                              const raw = e.target.value;
+                              if (raw === '') {
+                                updateModifierGroup(gIdx, { max_select: '', min_select: '' });
+                              } else {
+                                const num = parseInt(raw, 10);
+                                updateModifierGroup(gIdx, {
+                                  max_select: isNaN(num) ? '' : num,
+                                  min_select: isNaN(num) ? '' : num
+                                });
+                              }
+                            }}
+                            onBlur={() => {
+                              const current = parseInt(group.max_select, 10);
+                              const safe = isNaN(current) || current < 1 ? 1 : current;
+                              updateModifierGroup(gIdx, { max_select: safe, min_select: safe });
                             }}
                             className="w-full bg-slate-800 border border-amber-500/40 text-amber-300 font-bold rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-400"
                             placeholder="Ex: 4"
@@ -5122,7 +5140,7 @@ function Products() {
                         </div>
                       </div>
 
-                      {(group.max_select || 1) > 1 && (
+                      {((parseInt(group.max_select, 10) || 1) > 1) && (
                         <div className="mb-3 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-400 text-xs flex items-center justify-between">
                           <span>✨ <strong>Passo com multi-escolha:</strong> o garçom poderá distribuir até <strong>{group.max_select} unidades</strong> entre os sabores abaixo (ex: 2 coco + 1 melancia + 1 maracujá).</span>
                           <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-500/20 px-2 py-0.5 rounded">Cota: {group.max_select} un</span>

@@ -187,9 +187,9 @@ export const api = {
             .insert({
               product_id: productId,
               name: mg.name,
-              step_order: mg.step_order || 1,
-              min_select: mg.min_select || 1,
-              max_select: mg.max_select || 1
+              step_order: parseInt(mg.step_order) || 1,
+              min_select: Math.max(1, parseInt(mg.min_select) || parseInt(mg.max_select) || 1),
+              max_select: Math.max(1, parseInt(mg.max_select) || 1)
             })
             .select()
             .single();
@@ -265,9 +265,9 @@ export const api = {
             .insert({
               product_id: productId,
               name: mg.name,
-              step_order: mg.step_order || 1,
-              min_select: mg.min_select || 1,
-              max_select: mg.max_select || 1
+              step_order: parseInt(mg.step_order) || 1,
+              min_select: Math.max(1, parseInt(mg.min_select) || parseInt(mg.max_select) || 1),
+              max_select: Math.max(1, parseInt(mg.max_select) || 1)
             })
             .select()
             .single();
