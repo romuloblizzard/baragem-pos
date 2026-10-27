@@ -83,7 +83,7 @@ export const api = {
         .select(`
           *,
           products!product_ingredients_ingredient_id_fkey (
-            name, cost_price, stock, unit, bottle_volume_ml, categories(name)
+            name, cost_price, stock, unit, bottle_volume_ml, unit_conversion_factor, categories(name)
           )
         `)
         .in('product_id', compositionIds);
@@ -91,22 +91,27 @@ export const api = {
       if (!ingError && ingredientsData) {
         for (const p of formattedProducts) {
           if (p.type === 'composition') {
-            p.ingredients = ingredientsData.filter((i: any) => i.product_id === p.id).map((i: any) => ({
-              ...i,
-              ingredient_name: i.products?.name,
-              ingredient_cost: i.products?.cost_price || 0,
-              ingredient_stock: i.products?.stock || 0,
-              ingredient_unit: i.products?.unit || 'un',
-              ingredient_category: i.products?.categories?.name,
-              ingredient_bottle_volume_ml: i.products?.bottle_volume_ml || 0
-            }));
+            p.ingredients = ingredientsData.filter((i: any) => i.product_id === p.id).map((i: any) => {
+              const vol = i.products?.bottle_volume_ml || i.products?.unit_conversion_factor || 0;
+              return {
+                ...i,
+                ingredient_name: i.products?.name,
+                ingredient_cost: i.products?.cost_price || 0,
+                ingredient_stock: i.products?.stock || 0,
+                ingredient_unit: i.products?.unit || 'un',
+                ingredient_category: i.products?.categories?.name,
+                ingredient_bottle_volume_ml: vol
+              };
+            });
 
             // Dynamic cost: sum of (ingredient cost × quantity used)
             if (p.ingredients.length > 0) {
               p.cost_price = p.ingredients.reduce((sum: number, ing: any) => {
                 let actualQty = ing.quantity || 0;
-                if (ing.ingredient_category === 'Garrafa' && ing.ingredient_bottle_volume_ml) {
-                  actualQty = actualQty / ing.ingredient_bottle_volume_ml;
+                const vol = ing.ingredient_bottle_volume_ml || 0;
+                // Se a quantidade for em ml/g (>= 1) e o produto tiver volume cadastrado (> 0), converte para fração da embalagem
+                if (vol > 0 && actualQty >= 1) {
+                  actualQty = actualQty / vol;
                 }
                 return sum + ((ing.ingredient_cost || 0) * actualQty);
               }, 0);
@@ -115,8 +120,9 @@ export const api = {
               p.stock = Math.floor(Math.min(
                 ...p.ingredients.map((ing: any) => {
                   let actualQty = ing.quantity || 0;
-                  if (ing.ingredient_category === 'Garrafa' && ing.ingredient_bottle_volume_ml) {
-                    actualQty = actualQty / ing.ingredient_bottle_volume_ml;
+                  const vol = ing.ingredient_bottle_volume_ml || 0;
+                  if (vol > 0 && actualQty >= 1) {
+                    actualQty = actualQty / vol;
                   }
                   if (actualQty <= 0) return 0;
                   return (ing.ingredient_stock || 0) / actualQty;
@@ -738,6 +744,22 @@ export const api = {
 
         const { error: modError } = await supabase.from('order_item_modifiers').insert(modifierInserts);
         if (modError) throw modError;
+
+        // Abate estoque dos itens selecionados no Wizard (Pulos)
+        for (const m of item.modifiers) {
+          if (m.product_id) {
+            const deductQty = (m.quantity !== undefined ? parseFloat(m.quantity) : 1) * (item.quantity || 1);
+            try {
+              const { data: pData } = await supabase.from('products').select('stock').eq('id', m.product_id).single();
+              if (pData) {
+                const currentStock = parseFloat(pData.stock) || 0;
+                await supabase.from('products').update({ stock: Math.max(0, currentStock - deductQty) }).eq('id', m.product_id);
+              }
+            } catch (stockErr) {
+              console.error('Erro ao abater estoque do modificador:', stockErr);
+            }
+          }
+        }
       }
     }
 
@@ -1236,12 +1258,14 @@ export const api = {
     return data;
   },
   saveSupplier: async (supplier: any) => {
-    if (supplier.id) {
-      const { data, error } = await supabase.from('suppliers').update(supplier).eq('id', supplier.id).select().single();
+    const payload = { ...supplier };
+    if (payload.id) {
+      const { data, error } = await supabase.from('suppliers').update(payload).eq('id', payload.id).select().single();
       if (error) throw error;
       return data;
     } else {
-      const { data, error } = await supabase.from('suppliers').insert(supplier).select().single();
+      delete payload.id;
+      const { data, error } = await supabase.from('suppliers').insert(payload).select().single();
       if (error) throw error;
       return data;
     }
@@ -1334,11 +1358,39 @@ export const api = {
     return orders.map((order: any) => ({
       ...order,
       supplier_name: order.suppliers?.name || 'Fornecedor avulso',
-      items: items.filter(i => i.purchase_order_id === order.id).map((i: any) => ({
-        ...i,
-        system_product_name: i.products?.name,
-        system_product_unit: i.products?.unit
-      }))
+      items: items.filter(i => i.purchase_order_id === order.id).map((i: any) => {
+        const metaMatch = i.raw_name?.match(/<!--META:(.*?)-->/);
+        let parsedFormat = 'Garrafa';
+        let parsedSize: any = 1;
+        let parsedUnit = 'un';
+        let cleanName = i.raw_name ? i.raw_name.replace(/\s*\[.*?\]<!--META:.*?-->/, '').replace(/<!--META:.*?-->/, '').trim() : '';
+
+        if (metaMatch) {
+          try {
+            const meta = JSON.parse(metaMatch[1]);
+            parsedFormat = meta.format || 'Garrafa';
+            parsedSize = meta.size || 1;
+            parsedUnit = meta.unit || 'un';
+          } catch (e) {}
+        } else {
+          const matchVol = cleanName.match(/(\d+(?:[.,]\d+)?)\s*(l|litro|litros|ml|kg|quilo|kilo|g|grama)/i);
+          if (matchVol) {
+            parsedSize = parseFloat(matchVol[1].replace(',', '.'));
+            parsedUnit = matchVol[2].toLowerCase().startsWith('l') ? 'L' : matchVol[2].toLowerCase().startsWith('m') ? 'ml' : matchVol[2].toLowerCase().startsWith('k') ? 'kg' : 'g';
+            parsedFormat = parsedUnit === 'L' || parsedUnit === 'ml' ? 'Garrafa' : 'Pacote';
+          }
+        }
+
+        return {
+          ...i,
+          clean_name: cleanName || i.raw_name,
+          raw_format: parsedFormat,
+          raw_size: parsedSize,
+          raw_unit: parsedUnit,
+          system_product_name: i.products?.name,
+          system_product_unit: i.products?.unit
+        };
+      })
     }));
   },
   savePurchaseOrder: async (orderData: any, items: any[]) => {
@@ -1389,12 +1441,24 @@ export const api = {
 
     // Insert items
     if (items && items.length > 0) {
-      const insertItems = items.map(item => ({
-        purchase_order_id: orderId,
-        raw_name: item.raw_name,
-        raw_quantity: item.raw_quantity,
-        raw_unit_price: item.raw_unit_price
-      }));
+      const insertItems = items.map(item => {
+        let rawName = item.clean_name || item.raw_name || '';
+        const format = item.raw_format || 'Garrafa';
+        const size = item.raw_size !== undefined && item.raw_size !== '' ? item.raw_size : 1;
+        const unit = item.raw_unit || 'un';
+
+        // Serialize metadata cleanly into raw_name
+        const metaTag = `<!--META:${JSON.stringify({ format, size, unit })}-->`;
+        const rawNameWithMeta = `${rawName} [${format} ${size}${unit}]${metaTag}`;
+
+        return {
+          purchase_order_id: orderId,
+          raw_name: rawNameWithMeta,
+          raw_quantity: parseFloat(item.raw_quantity) || 0,
+          raw_unit_price: parseFloat(item.raw_unit_price) || 0,
+          product_id: item.product_id || null
+        };
+      });
       const { error: itemsError } = await supabase.from('purchase_order_items').insert(insertItems);
       if (itemsError) throw itemsError;
     }
@@ -1420,14 +1484,19 @@ export const api = {
       // 2. Fetch current product with category
       const { data: product, error: prodError } = await supabase
         .from('products')
-        .select('stock, cost_price, stock_bottles, bottle_volume_ml, categories(name)')
+        .select('name, stock, cost_price, stock_bottles, bottle_volume_ml, purchase_unit, unit, categories(name)')
         .eq('id', item.product_id)
         .single();
 
       if (prodError) throw prodError;
 
       const categoryName = (product as any).categories?.name;
-      const isBottle = categoryName === 'Garrafa';
+      const isLiquidOrBottle = categoryName === 'Garrafa' ||
+        product.purchase_unit === 'Garrafa' ||
+        product.purchase_unit === 'Lata' ||
+        product.purchase_unit === 'Barril' ||
+        product.unit === 'ml' ||
+        (product.bottle_volume_ml && product.bottle_volume_ml > 0);
 
       // 3. Calculate new weighted average cost and new stock
       const currentStock = parseFloat(product.stock) || 0;
@@ -1436,49 +1505,63 @@ export const api = {
       const addedStock = parseFloat(item.reconciled_quantity) || 0;
       const addedCost = parseFloat(item.reconciled_unit_cost) || 0;
 
-      let updateData: any = {};
+      const expectedStock = currentStock + addedStock;
 
-      if (isBottle) {
-        // Garrafa: reconciled_quantity = garrafas inteiras
-        const bottleVolume = parseFloat(item.bottle_volume_ml) || parseFloat(product.bottle_volume_ml) || 0;
-        const totalNewStock = currentStock + addedStock;
-        const totalNewBottles = Math.floor(totalNewStock);
-
-        // Weighted average cost per bottle
-        let newCost = currentCost;
-        if (totalNewStock > 0) {
-          const currentVal = currentStock * currentCost;
-          const addedVal = addedStock * addedCost;
-          newCost = (currentVal + addedVal) / totalNewStock;
-        } else if (addedStock > 0) {
-          newCost = addedCost;
-        }
-
-        updateData = {
-          stock: totalNewStock,
-          stock_bottles: totalNewBottles,
-          bottle_volume_ml: bottleVolume,
-          cost_price: newCost
-        };
-      } else {
-        // Produto normal
-        const totalNewStock = currentStock + addedStock;
-        let newCost = currentCost;
-        if (totalNewStock > 0) {
-          const currentVal = currentStock * currentCost;
-          const addedVal = addedStock * addedCost;
-          newCost = (currentVal + addedVal) / totalNewStock;
-        } else if (addedStock > 0) {
-          newCost = addedCost;
-        }
-
-        updateData = {
-          stock: totalNewStock,
-          cost_price: newCost
-        };
+      // Custo médio ponderado
+      let newCost = currentCost;
+      if (expectedStock > 0) {
+        const currentVal = currentStock * currentCost;
+        const addedVal = addedStock * addedCost;
+        newCost = (currentVal + addedVal) / expectedStock;
+      } else if (addedStock > 0) {
+        newCost = addedCost;
       }
 
-      // 4. Update product
+      // 4. Balanço Cego e Auditoria (Prevenção de Perdas)
+      const hasPhysicalCount = item.physical_count !== undefined && item.physical_count !== null && item.physical_count !== '';
+      const physicalCount = hasPhysicalCount ? parseFloat(item.physical_count) : expectedStock;
+      const finalStock = hasPhysicalCount ? physicalCount : expectedStock;
+      const divergence = physicalCount - expectedStock;
+
+      // Se houver divergência, registrar no cofre de auditoria
+      if (hasPhysicalCount && Math.abs(divergence) > 0.0001) {
+        const financialLoss = Math.abs(divergence) * newCost;
+        try {
+          await supabase.from('inventory_audits').insert({
+            product_id: item.product_id,
+            product_name: product.name,
+            previous_stock: expectedStock,
+            new_stock: physicalCount,
+            divergence: divergence,
+            reason: item.reason || (divergence < 0 ? 'Não Identificado (Sumiço)' : 'Sobra na Contagem'),
+            financial_loss: financialLoss,
+            cost_price_at_audit: newCost
+          });
+        } catch (auditErr) {
+          console.error('Aviso ao registrar auditoria de estoque:', auditErr);
+        }
+      }
+
+      const bottleVolume = parseFloat(item.bottle_volume_ml) || parseFloat(product.bottle_volume_ml) || 0;
+      const totalNewBottles = Math.floor(finalStock);
+
+      let updateData: any = {
+        stock: finalStock,
+        cost_price: newCost
+      };
+
+      if (isLiquidOrBottle) {
+        updateData.stock_bottles = totalNewBottles;
+        if (bottleVolume > 0) {
+          updateData.bottle_volume_ml = bottleVolume;
+          updateData.unit_conversion_factor = bottleVolume;
+        }
+      } else if (bottleVolume > 0) {
+        updateData.bottle_volume_ml = bottleVolume;
+        updateData.unit_conversion_factor = bottleVolume;
+      }
+
+      // 5. Update product
       const { error: updateProdError } = await supabase
         .from('products')
         .update(updateData)
@@ -1487,7 +1570,7 @@ export const api = {
       if (updateProdError) throw updateProdError;
     }
 
-    // 5. Update purchase order status to reconciled
+    // 6. Update purchase order status to reconciled
     const { error: orderError } = await supabase
       .from('purchase_orders')
       .update({
@@ -1499,6 +1582,31 @@ export const api = {
     if (orderError) throw orderError;
 
     return { success: true };
+  },
+
+  getInventoryAudits: async () => {
+    const { data, error } = await supabase
+      .from('inventory_audits')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Erro ao carregar auditorias:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  updateProductName: async (productId: number, newName: string) => {
+    const { data, error } = await supabase
+      .from('products')
+      .update({ name: newName })
+      .eq('id', productId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
   },
 
   deletePurchaseOrder: async (orderId: number) => {

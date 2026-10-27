@@ -4,13 +4,70 @@ import { Link } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingBag, Package, DollarSign,
   Plus, Search, Edit, Trash2, CheckCircle, XCircle, ClipboardList, List, Home, Settings as SettingsIcon, Printer, Users, ShoppingCart, X, LogOut,
-  FileSpreadsheet, Download, Upload, TableProperties, Calculator, PlusCircle, RefreshCw, TrendingUp, Copy
+  FileSpreadsheet, Download, Upload, TableProperties, Calculator, PlusCircle, RefreshCw, TrendingUp, Copy,
+  AlertTriangle, ArrowLeft, ShieldAlert, Eye
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const formatCategoryName = (name: string) => {
   if (!name) return '';
   return name.replace(/^[🟡🟢🔵🟠🟣🔴⚫]\s*(?:[0-9]+\.\s*)?/, '');
+};
+
+// Helper inteligente para detectar volume/peso total da embalagem (disponível em todo o módulo)
+const getProductVolume = (p: any): number => {
+  if (!p) return 1;
+  const vol = p.bottle_volume_ml || p.unit_conversion_factor || 0;
+  if (vol > 0) return vol;
+  const name = (p.name || '').toLowerCase();
+  const match2L = name.match(/(\d+(?:[.,]\d+)?)\s*(l|litro|litros)/i);
+  if (match2L) return parseFloat(match2L[1].replace(',', '.')) * 1000;
+  const matchMl = name.match(/(\d+(?:[.,]\d+)?)\s*(ml)/i);
+  if (matchMl) return parseFloat(matchMl[1].replace(',', '.'));
+  const matchKg = name.match(/(\d+(?:[.,]\d+)?)\s*(kg|quilo|quilos|kilo|kilos)/i);
+  if (matchKg) return parseFloat(matchKg[1].replace(',', '.')) * 1000;
+  const matchG = name.match(/(\d+(?:[.,]\d+)?)\s*(g|grama|gramas)/i);
+  if (matchG) return parseFloat(matchG[1].replace(',', '.'));
+  return 1;
+};
+
+// Helper inteligente para classificar o insumo: líquido, sólido/peso ou unitário
+const getProductMeasurementType = (p: any): 'liquid' | 'solid' | 'unit' => {
+  if (!p) return 'unit';
+  const name = (p.name || '').toLowerCase();
+  const u = (p.unit || '').toLowerCase();
+  const fmt = (p.purchase_unit || '').toLowerCase();
+  
+  if (u === 'ml' || u === 'l' || fmt.includes('garrafa') || fmt.includes('lata') || fmt.includes('barril') || fmt.includes('balde') || /litro|ml|\b\d+l\b/i.test(name)) {
+    return 'liquid';
+  }
+  if (u === 'g' || u === 'kg' || fmt.includes('pacote') || /quilo|kilo|\b\d+kg\b|\b\d+g\b|grama/i.test(name)) {
+    return 'solid';
+  }
+  return 'unit';
+};
+
+// Helper inteligente para amarrar apenas as unidades coerentes e permitidas
+const getCompatibleUnits = (p: any): Array<{ value: string; label: string }> => {
+  const type = getProductMeasurementType(p);
+  const fmt = p?.purchase_unit || (type === 'liquid' ? 'Garrafa' : type === 'solid' ? 'Pacote' : 'Unidade');
+  if (type === 'liquid') {
+    return [
+      { value: 'ml', label: 'ml' },
+      { value: 'L', label: 'L' },
+      { value: 'un', label: `${fmt} (un)` }
+    ];
+  }
+  if (type === 'solid') {
+    return [
+      { value: 'g', label: 'g' },
+      { value: 'kg', label: 'kg' },
+      { value: 'un', label: `${fmt} (un)` }
+    ];
+  }
+  return [
+    { value: 'un', label: 'un' }
+  ];
 };
 
 export default function Manager() {
@@ -3128,6 +3185,7 @@ function Products() {
 
   // Form State
   const [productType, setProductType] = useState('simple');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'simples' | 'composition' | 'variable'>('all');
   const [ingredients, setIngredients] = useState<any[]>([]);
   const [childProducts, setChildProducts] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -3137,15 +3195,64 @@ function Products() {
   const [stockVariations, setStockVariations] = useState<{ id: string, qty: number, size: number, totalPrice: number }[]>([]);
   const [purchaseUnit, setPurchaseUnit] = useState('');
   const [saleUnit, setSaleUnit] = useState('un');
-  const [editingPrice, setEditingPrice] = useState<{ id: number; field: 'price' | 'cost_price' | 'stock'; value: string } | null>(null);
+  const [packageFormat, setPackageFormat] = useState('Garrafa');
+  const [packageSize, setPackageSize] = useState('1');
+  const [packageUnit, setPackageUnit] = useState('L');
+  const [editingPrice, setEditingPrice] = useState<{ id: number; field: string; value: string } | null>(null);
 
-  const saveInlinePrice = async (product: any, field: 'price' | 'cost_price' | 'stock', rawValue: string) => {
-    setEditingPrice(null);
-    const value = parseFloat(rawValue) || 0;
-    if (value === (product[field] || 0)) return;
-    await api.saveProduct({ ...product, [field]: value });
+  const saveInlineSizeAndUnit = async (product: any, rawSize: string | number, selectedUnit: string) => {
+    const num = parseFloat(rawSize as string) || 0;
+    let convertedVol = num;
+    let baseUnit = 'un';
+
+    if (selectedUnit === 'L') {
+      convertedVol = num * 1000;
+      baseUnit = 'ml';
+    } else if (selectedUnit === 'ml') {
+      convertedVol = num;
+      baseUnit = 'ml';
+    } else if (selectedUnit === 'kg') {
+      convertedVol = num * 1000;
+      baseUnit = 'g';
+    } else if (selectedUnit === 'g') {
+      convertedVol = num;
+      baseUnit = 'g';
+    } else {
+      convertedVol = num > 0 ? num : 1;
+      baseUnit = 'un';
+    }
+
+    await api.saveProduct({
+      ...product,
+      bottle_volume_ml: convertedVol,
+      unit_conversion_factor: convertedVol,
+      unit: baseUnit
+    });
     const allProducts = await api.getProducts();
     setProducts(allProducts);
+  };
+
+  const saveInlinePrice = async (product: any, field: string, rawValue: string | number | null) => {
+    setEditingPrice(null);
+    let value: string | number | null = rawValue;
+    if (field === 'price' || field === 'cost_price' || field === 'stock' || field === 'bottle_volume_ml') {
+        value = parseFloat(rawValue as string) || 0;
+    }
+    if (field === 'category_id' || field === 'parent_id') {
+        value = rawValue ? parseInt(rawValue as string) : null;
+    }
+    
+    if (value === product[field]) return;
+    
+    if (field === 'stock') {
+      await api.saveProduct({ ...product, stock: value, stock_bottles: value });
+    } else {
+      await api.saveProduct({ ...product, [field]: value });
+    }
+    const allProducts = await api.getProducts();
+    setProducts(allProducts);
+    
+    // cost_price update logic
     if (field === 'cost_price') {
       const compositions = allProducts.filter((p: any) =>
         p.type === 'composition' &&
@@ -3155,7 +3262,7 @@ function Products() {
         for (const comp of compositions) {
           const newCost = (comp.ingredients || []).reduce((sum: number, ing: any) => {
             const ingProd = allProducts.find((p: any) => p.id === ing.ingredient_id);
-            const unitCost = ing.ingredient_id === product.id ? value : (ingProd?.cost_price || 0);
+            const unitCost = ing.ingredient_id === product.id ? (value as number) : (ingProd?.cost_price || 0);
             const qty = ing.quantity || 0;
             return sum + unitCost * qty;
           }, 0);
@@ -3298,13 +3405,108 @@ function Products() {
         size: parseFloat(b.unit_size) || 1,
         totalPrice: parseFloat(b.total_price) || 0
       })) || []);
-      setModifierGroups(editingProduct.modifier_groups || []);
+      // Converte modifier_groups e ingredientes antigos (ex: frações 0.125 ou 0.2) para unidades amigáveis (ex: 250ml ou 400g)
+      const formattedModGroups = (editingProduct.modifier_groups || []).map((mg: any) => ({
+        ...mg,
+        product_modifier_items: (mg.product_modifier_items || []).map((item: any) => {
+          const linked = products.find(p => p.id === item.linked_product_id);
+          const type = getProductMeasurementType(linked);
+          const vol = getProductVolume(linked);
+          let rawQty = item.quantity !== undefined ? item.quantity : 1;
+          let unit = item.unit;
+          let displayQty = rawQty;
+
+          if (type === 'liquid') {
+            if (!unit) unit = 'ml';
+            if (rawQty > 0 && rawQty < 1 && vol > 1) {
+              displayQty = Math.round(rawQty * vol);
+              unit = 'ml';
+            }
+          } else if (type === 'solid') {
+            if (!unit) unit = 'g';
+            if (rawQty > 0 && rawQty < 1 && vol > 1) {
+              displayQty = Math.round(rawQty * vol);
+              unit = 'g';
+            }
+          } else {
+            unit = 'un';
+          }
+
+          return { ...item, quantity: displayQty, unit };
+        })
+      }));
+      setModifierGroups(formattedModGroups);
+
+      // Converte ingredientes antigos para unidades amigáveis
+      const formattedIngredients = (editingProduct.ingredients || []).map((ing: any) => {
+        const linked = products.find(p => p.id === ing.ingredient_id);
+        const type = getProductMeasurementType(linked);
+        const vol = getProductVolume(linked);
+        let rawQty = ing.quantity !== undefined ? ing.quantity : 1;
+        let unit = ing.unit;
+        let displayQty = rawQty;
+
+        if (type === 'liquid') {
+          if (!unit) unit = 'ml';
+          if (rawQty > 0 && rawQty < 1 && vol > 1) {
+            displayQty = Math.round(rawQty * vol);
+            unit = 'ml';
+          }
+        } else if (type === 'solid') {
+          if (!unit) unit = 'g';
+          if (rawQty > 0 && rawQty < 1 && vol > 1) {
+            displayQty = Math.round(rawQty * vol);
+            unit = 'g';
+          }
+        } else {
+          unit = 'un';
+        }
+
+        return { ...ing, quantity: displayQty, unit };
+      });
+      setIngredients(formattedIngredients);
+
+      // Formato e Tamanho inteligente
+      const fmt = editingProduct.purchase_unit || (editingProduct.category_name === 'Garrafa' ? 'Garrafa' : 'Unidade');
+      setPackageFormat(fmt);
+
+      const vol = editingProduct.bottle_volume_ml || editingProduct.unit_conversion_factor || 0;
+      const u = editingProduct.unit || 'ml';
+      if (u === 'ml') {
+        if (vol >= 1000 && vol % 1000 === 0) {
+          setPackageSize((vol / 1000).toString());
+          setPackageUnit('L');
+        } else if (vol > 0) {
+          setPackageSize(vol.toString());
+          setPackageUnit('ml');
+        } else {
+          setPackageSize('1');
+          setPackageUnit('L');
+        }
+      } else if (u === 'g') {
+        if (vol >= 1000 && vol % 1000 === 0) {
+          setPackageSize((vol / 1000).toString());
+          setPackageUnit('kg');
+        } else if (vol > 0) {
+          setPackageSize(vol.toString());
+          setPackageUnit('g');
+        } else {
+          setPackageSize('1');
+          setPackageUnit('kg');
+        }
+      } else {
+        setPackageSize(vol > 0 ? vol.toString() : '1');
+        setPackageUnit(u);
+      }
     } else {
       setProductType('simple');
       setIngredients([]);
       setChildProducts([]);
       setStockVariations([]);
       setModifierGroups([]);
+      setPackageFormat('Garrafa');
+      setPackageSize('1');
+      setPackageUnit('L');
     }
   }, [editingProduct, products]);
 
@@ -3372,16 +3574,33 @@ function Products() {
     if (productType === 'simple') {
       const parsedStock = parseFloat(formData.get('stock') as string);
       data.stock = isNaN(parsedStock) ? 0 : parsedStock;
-      data.unit = formData.get('unit');
-      data.purchase_unit = formData.get('purchase_unit') || null;
-      data.unit_conversion_factor = parseFloat(formData.get('unit_conversion_factor') as string) || 1;
-      data.batches = stockVariations;
+      data.purchase_unit = packageFormat || 'Garrafa';
 
-      // Garrafa: volume apenas
-      const selectedCat = categories.find(c => c.id === data.category_id);
-      if (selectedCat?.name === 'Garrafa') {
-        data.bottle_volume_ml = parseFloat(formData.get('bottle_volume_ml') as string) || 0;
+      // Cálculo inteligente à prova de erros
+      const num = parseFloat(packageSize) || 0;
+      let convertedVol = num;
+      let baseUnit = 'un';
+      if (packageUnit === 'L') {
+        convertedVol = num * 1000;
+        baseUnit = 'ml';
+      } else if (packageUnit === 'ml') {
+        convertedVol = num;
+        baseUnit = 'ml';
+      } else if (packageUnit === 'kg') {
+        convertedVol = num * 1000;
+        baseUnit = 'g';
+      } else if (packageUnit === 'g') {
+        convertedVol = num;
+        baseUnit = 'g';
+      } else {
+        convertedVol = num > 0 ? num : 1;
+        baseUnit = 'un';
       }
+
+      data.unit = baseUnit;
+      data.bottle_volume_ml = convertedVol;
+      data.unit_conversion_factor = convertedVol;
+      data.batches = stockVariations;
     } else {
       data.stock = 0; // Default stock for variable/composition
       data.unit = 'un';
@@ -3389,14 +3608,79 @@ function Products() {
     }
 
     if (productType === 'composition') {
-      data.ingredients = ingredients;
+      data.ingredients = ingredients.map((ing: any) => {
+        const linked = products.find(p => p.id === ing.ingredient_id);
+        const type = getProductMeasurementType(linked);
+        const vol = getProductVolume(linked);
+        const compUnits = getCompatibleUnits(linked);
+        const unit = ing.unit || compUnits[0]?.value || 'un';
+        const qty = parseFloat(ing.quantity) || 0;
+        let savedQty = qty;
+
+        if (type === 'liquid') {
+          if (unit === 'ml' && vol > 1) {
+            savedQty = qty / vol;
+          } else if (unit === 'L') {
+            savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
+          } else {
+            savedQty = qty;
+          }
+        } else if (type === 'solid') {
+          if (unit === 'g' && vol > 1) {
+            savedQty = qty / vol;
+          } else if (unit === 'kg') {
+            savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
+          } else {
+            savedQty = qty;
+          }
+        }
+
+        return {
+          ...ing,
+          quantity: savedQty
+        };
+      });
     }
 
     if (productType === 'variable') {
       data.child_product_ids = childProducts.filter(id => id && !isNaN(id));
     }
 
-    data.modifier_groups = modifierGroups;
+    data.modifier_groups = modifierGroups.map((mg: any) => ({
+      ...mg,
+      product_modifier_items: (mg.product_modifier_items || []).map((item: any) => {
+        const linked = products.find(p => p.id === item.linked_product_id);
+        const type = getProductMeasurementType(linked);
+        const vol = getProductVolume(linked);
+        const compUnits = getCompatibleUnits(linked);
+        const unit = item.unit || compUnits[0]?.value || 'un';
+        const qty = parseFloat(item.quantity) || 0;
+        let savedQty = qty;
+
+        if (type === 'liquid') {
+          if (unit === 'ml' && vol > 1) {
+            savedQty = qty / vol;
+          } else if (unit === 'L') {
+            savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
+          } else {
+            savedQty = qty;
+          }
+        } else if (type === 'solid') {
+          if (unit === 'g' && vol > 1) {
+            savedQty = qty / vol;
+          } else if (unit === 'kg') {
+            savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
+          } else {
+            savedQty = qty;
+          }
+        }
+
+        return {
+          ...item,
+          quantity: savedQty
+        };
+      })
+    }));
 
     try {
       console.log('Saving product data:', JSON.stringify(data, null, 2));
@@ -3421,12 +3705,27 @@ function Products() {
   };
 
   const addIngredient = () => {
-    setIngredients([...ingredients, { ingredient_id: '', quantity: 1 }]);
+    setIngredients([...ingredients, { ingredient_id: '', quantity: 1, unit: 'un' }]);
   };
 
   const updateIngredient = (index: number, field: string, value: any) => {
     const newIngredients = [...ingredients];
     newIngredients[index] = { ...newIngredients[index], [field]: value };
+    if (field === 'ingredient_id') {
+      const selectedProd = products.find(p => p.id === value);
+      if (selectedProd) {
+        const type = getProductMeasurementType(selectedProd);
+        const compUnits = getCompatibleUnits(selectedProd);
+        newIngredients[index].unit = compUnits[0]?.value || 'un';
+        if (type === 'liquid') {
+          newIngredients[index].quantity = 250;
+        } else if (type === 'solid') {
+          newIngredients[index].quantity = 400;
+        } else {
+          newIngredients[index].quantity = 1;
+        }
+      }
+    }
     setIngredients(newIngredients);
   };
 
@@ -3471,7 +3770,7 @@ function Products() {
   const addModifierItem = (groupIndex: number) => {
     const newGroups = [...modifierGroups];
     const items = [...(newGroups[groupIndex].product_modifier_items || [])];
-    items.push({ linked_product_id: '', is_fixed_price: false, extra_price: 0, quantity: 1 });
+    items.push({ linked_product_id: '', is_fixed_price: false, extra_price: 0, quantity: 1, unit: 'un' });
     newGroups[groupIndex].product_modifier_items = items;
     setModifierGroups(newGroups);
   };
@@ -3486,6 +3785,21 @@ function Products() {
     const newGroups = [...modifierGroups];
     const items = [...newGroups[groupIndex].product_modifier_items];
     items[itemIndex] = { ...items[itemIndex], [field]: value };
+    if (field === 'linked_product_id') {
+      const selectedProd = products.find(p => p.id === value);
+      if (selectedProd) {
+        const type = getProductMeasurementType(selectedProd);
+        const compUnits = getCompatibleUnits(selectedProd);
+        items[itemIndex].unit = compUnits[0]?.value || 'un';
+        if (type === 'liquid') {
+          items[itemIndex].quantity = 250;
+        } else if (type === 'solid') {
+          items[itemIndex].quantity = 400;
+        } else {
+          items[itemIndex].quantity = 1;
+        }
+      }
+    }
     newGroups[groupIndex].product_modifier_items = items;
     setModifierGroups(newGroups);
   };
@@ -3551,9 +3865,9 @@ function Products() {
       </div>
 
       <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-        <div className="flex items-center gap-4 mb-3">
-          <p className="text-sm font-medium text-slate-400">Filtrar por Categoria:</p>
-          <div className="flex gap-2">
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-3">
+          <div className="flex items-center flex-wrap gap-2">
+            <p className="text-sm font-medium text-slate-400 mr-1">Filtrar por Categoria:</p>
             <button 
               onClick={() => setUnselectedCategories([])}
               className="text-xs bg-slate-800 hover:bg-slate-700 text-blue-400 px-2 py-1 rounded border border-slate-700"
@@ -3566,6 +3880,35 @@ function Products() {
             >
               Limpar Todos
             </button>
+
+            {/* FILTROS DE TIPO COMPACTOS AO LADO DE LIMPAR TODOS */}
+            <div className="flex items-center gap-1 ml-2 pl-3 border-l border-slate-700">
+              <span className="text-xs font-medium text-slate-400 mr-1">Tipo:</span>
+              <button 
+                onClick={() => setTypeFilter('all')} 
+                className={`text-xs px-2.5 py-1 rounded transition-colors font-medium border ${typeFilter === 'all' ? 'bg-blue-600 text-white border-blue-500 font-bold' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}
+              >
+                Todos
+              </button>
+              <button 
+                onClick={() => setTypeFilter('simples')} 
+                className={`text-xs px-2.5 py-1 rounded transition-colors font-medium border ${typeFilter === 'simples' ? 'bg-blue-600 text-white border-blue-500 font-bold shadow' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}
+              >
+                Simples
+              </button>
+              <button 
+                onClick={() => setTypeFilter('composition')} 
+                className={`text-xs px-2.5 py-1 rounded transition-colors font-medium border ${typeFilter === 'composition' ? 'bg-blue-600 text-white border-blue-500 font-bold' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}
+              >
+                Composição
+              </button>
+              <button 
+                onClick={() => setTypeFilter('variable')} 
+                className={`text-xs px-2.5 py-1 rounded transition-colors font-medium border ${typeFilter === 'variable' ? 'bg-blue-600 text-white border-blue-500 font-bold' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}
+              >
+                Variável
+              </button>
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -3595,34 +3938,51 @@ function Products() {
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden overflow-x-auto">
         <table className="w-full text-left text-sm min-w-[800px]">
           <thead className="bg-slate-800/50 text-slate-400 font-medium uppercase tracking-wider">
-            <tr>
-              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('name')}>
-                <div className="flex items-center gap-1">PRODUTO {sortField === 'name' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
-              </th>
-              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('type')}>
-                <div className="flex items-center gap-1">TIPO {sortField === 'type' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
-              </th>
-              <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('category')}>
-                <div className="flex items-center gap-1">CATEGORIA {sortField === 'category' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
-              </th>
-              <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('cost_price')}>
-                <div className="flex items-center gap-1">CUSTO {sortField === 'cost_price' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
-              </th>
-              <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('price')}>
-                <div className="flex items-center gap-1">PREÇO {sortField === 'price' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
-              </th>
-              <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('margin')}>
-                <div className="flex items-center gap-1">LUCRO % {sortField === 'margin' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
-              </th>
-              <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('stock')}>
-                <div className="flex items-center gap-1">ESTOQUE {sortField === 'stock' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
-              </th>
-              <th className="px-6 py-4 text-right">AÇÕES</th>
-            </tr>
+            {typeFilter === 'simples' ? (
+              <tr>
+                <th className="px-4 py-4 min-w-[200px]">PRODUTO</th>
+                <th className="px-2 py-4 w-20 text-center text-blue-400 font-bold" title="Quantidade que você edita para alterar o estoque">QTD ✏️</th>
+                <th className="px-2 py-4 w-28">FORMATO</th>
+                <th className="px-2 py-4 w-24 text-center">TAMANHO</th>
+                <th className="px-2 py-4 w-24 text-center">MEDIDA</th>
+                <th className="px-2 py-4 w-28">CUSTO</th>
+                <th className="px-2 py-4 w-28 text-emerald-400">VENDAS</th>
+                <th className="px-2 py-4 w-24 text-center text-amber-400 font-bold" title="Saldo atual em estoque (referência)">ESTOQUE</th>
+                <th className="px-4 py-4 text-center w-36">AÇÕES</th>
+              </tr>
+            ) : (
+              <tr>
+                <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('name')}>
+                  <div className="flex items-center gap-1">PRODUTO {sortField === 'name' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('type')}>
+                  <div className="flex items-center gap-1">TIPO {sortField === 'type' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('category')}>
+                  <div className="flex items-center gap-1">CATEGORIA {sortField === 'category' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                </th>
+                <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('cost_price')}>
+                  <div className="flex items-center gap-1">CUSTO {sortField === 'cost_price' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                </th>
+                <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('price')}>
+                  <div className="flex items-center gap-1">PREÇO {sortField === 'price' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                </th>
+                <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('margin')}>
+                  <div className="flex items-center gap-1">LUCRO % {sortField === 'margin' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                </th>
+                <th className="px-4 py-4 cursor-pointer hover:bg-slate-700/50 transition-colors" onClick={() => handleSort('stock')}>
+                  <div className="flex items-center gap-1">ESTOQUE {sortField === 'stock' && <span className="text-blue-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}</div>
+                </th>
+                <th className="px-6 py-4 text-right">AÇÕES</th>
+              </tr>
+            )}
           </thead>
           <tbody className="divide-y divide-slate-800">
             {products.filter(p => {
               if (p.parent_id) return false;
+              if (typeFilter === 'simples' && p.type !== 'simple') return false;
+              if (typeFilter === 'composition' && p.type !== 'composition') return false;
+              if (typeFilter === 'variable' && p.type !== 'variable') return false;
               
               // Filter by unselected categories (including their children)
               const disabledCategoryIds = unselectedCategories;
@@ -3656,7 +4016,210 @@ function Products() {
               }
               if (sortField === 'stock') return ((a.stock || 0) - (b.stock || 0)) * dir;
               return 0;
-            }).map(product => (
+            }).map(product => {
+              if (typeFilter === 'simples') {
+                const cost = product.cost_price || 0;
+                const price = product.price || 0;
+                const margin = price > 0 && cost > 0 ? ((price - cost) / price) * 100 : 0;
+                const vol = product.bottle_volume_ml || product.unit_conversion_factor || 0;
+                const u = product.unit || 'ml';
+                let displayVal = vol > 0 ? vol.toString() : '';
+                let displayUnit = u;
+
+                if (u === 'ml') {
+                  if (vol >= 1000 && vol % 1000 === 0) {
+                    displayVal = (vol / 1000).toString();
+                    displayUnit = 'L';
+                  } else {
+                    displayUnit = 'ml';
+                  }
+                } else if (u === 'g') {
+                  if (vol >= 1000 && vol % 1000 === 0) {
+                    displayVal = (vol / 1000).toString();
+                    displayUnit = 'kg';
+                  } else {
+                    displayUnit = 'g';
+                  }
+                }
+
+                return (
+                  <tr key={product.id} className="hover:bg-slate-800/30 transition-colors">
+                    {/* 1. PRODUTO */}
+                    <td className="px-4 py-2 min-w-[200px]">
+                      <input 
+                        type="text" 
+                        defaultValue={product.name} 
+                        onBlur={e => saveInlinePrice(product, 'name', e.target.value)} 
+                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-200 outline-none focus:border-blue-500 font-bold" 
+                      />
+                      <span className="text-[11px] text-slate-400 block mt-0.5">
+                        {product.category_name || 'Sem categoria'}
+                      </span>
+                    </td>
+
+                    {/* 2. QTD (Editável - Salva o estoque imediatamente) */}
+                    <td className="px-2 py-2 w-20 text-center">
+                      <input 
+                        key={`${product.id}-qtd-${product.stock}`}
+                        type="number" 
+                        step="0.001"
+                        defaultValue={product.stock !== undefined && product.stock !== null ? product.stock : ''} 
+                        onBlur={async e => {
+                          const val = parseFloat(e.target.value) || 0;
+                          await saveInlinePrice(product, 'stock', val);
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                        placeholder="Ex: 5"
+                        className="w-full bg-slate-800 border border-blue-500/50 rounded px-2 py-1 text-xs text-white font-bold outline-none text-center focus:border-blue-400" 
+                        title="Digite a quantidade e clique fora (ou Enter) para salvar"
+                      />
+                    </td>
+
+                    {/* 3. FORMATO */}
+                    <td className="px-2 py-2 w-28">
+                      <select 
+                        defaultValue={product.purchase_unit || (product.category_name === 'Garrafa' ? 'Garrafa' : 'Pacote')} 
+                        onChange={e => saveInlinePrice(product, 'purchase_unit', e.target.value)} 
+                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 outline-none focus:border-blue-500 cursor-pointer"
+                      >
+                        <option value="Garrafa">Garrafa</option>
+                        <option value="Pacote">Pacote</option>
+                        <option value="Caixa">Caixa</option>
+                        <option value="Lata">Lata</option>
+                        <option value="Unidade">Unidade</option>
+                        <option value="Fardo">Fardo</option>
+                        <option value="Balde">Balde</option>
+                      </select>
+                    </td>
+
+                    {/* 4. TAMANHO */}
+                    <td className="px-2 py-2 w-24 text-center">
+                      <input 
+                        key={`${product.id}-size-${displayVal}`}
+                        data-size-id={product.id}
+                        type="number" 
+                        step="0.001"
+                        defaultValue={displayVal} 
+                        onBlur={e => {
+                          const sel = (document.getElementById(`unit-sel-${product.id}`) as HTMLSelectElement)?.value || displayUnit;
+                          saveInlineSizeAndUnit(product, e.target.value, sel);
+                        }} 
+                        className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-center text-xs text-white font-bold outline-none focus:border-blue-500" 
+                        placeholder="Ex: 2 ou 900" 
+                      />
+                    </td>
+
+                    {/* 5. MEDIDA (un, L, ml, kg, g...) */}
+                    <td className="px-2 py-2 w-24">
+                      <div>
+                        <select 
+                          id={`unit-sel-${product.id}`}
+                          defaultValue={displayUnit} 
+                          onChange={e => {
+                            const inp = (document.querySelector(`input[data-size-id="${product.id}"]`) as HTMLInputElement)?.value || displayVal;
+                            saveInlineSizeAndUnit(product, inp, e.target.value);
+                          }} 
+                          className="w-full bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-xs text-slate-300 font-bold outline-none focus:border-blue-500 cursor-pointer"
+                        >
+                          <option value="L">L</option>
+                          <option value="ml">ml</option>
+                          <option value="kg">kg</option>
+                          <option value="g">g</option>
+                          <option value="un">un</option>
+                        </select>
+                        {vol > 0 && (
+                          <span className="text-[10px] text-blue-400 block mt-0.5 text-center font-medium">
+                            🔄 {vol}{u}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 6. CUSTO */}
+                    <td className="px-2 py-2 w-28">
+                      <div className="relative">
+                        <span className="absolute left-2 top-1.5 text-[10px] text-slate-500">R$</span>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          defaultValue={cost > 0 ? cost.toFixed(2) : ''} 
+                          onBlur={e => saveInlinePrice(product, 'cost_price', e.target.value)} 
+                          placeholder="0.00"
+                          className="w-full bg-slate-800 border border-slate-700 rounded pl-6 pr-1 py-1 text-xs text-slate-300 font-bold outline-none focus:border-blue-500" 
+                        />
+                      </div>
+                    </td>
+
+                    {/* 7. VENDAS */}
+                    <td className="px-2 py-2 w-28">
+                      <div className="relative">
+                        <span className="absolute left-2 top-1.5 text-[10px] text-slate-500">R$</span>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          defaultValue={price > 0 ? price.toFixed(2) : ''} 
+                          onBlur={e => saveInlinePrice(product, 'price', e.target.value)} 
+                          placeholder="0.00"
+                          className="w-full bg-slate-800 border border-slate-700 rounded pl-6 pr-1 py-1 text-xs text-emerald-400 font-bold outline-none focus:border-emerald-500" 
+                        />
+                      </div>
+                    </td>
+
+                    {/* 8. ESTOQUE (Somente Visualização e Referência) */}
+                    <td className="px-2 py-2 w-24 text-center">
+                      <span 
+                        className="inline-block px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-xs font-black text-amber-400 tracking-wide select-none"
+                        title="Saldo atual de estoque (somente leitura / referência)"
+                      >
+                        {product.stock !== undefined && product.stock !== null ? product.stock : 0}
+                      </span>
+                    </td>
+
+                    {/* AÇÕES COM OS 4 ÍCONES COMPLETOS */}
+                    <td className="px-4 py-2 text-center w-36">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => loadHistory(product)}
+                          className="text-amber-400 hover:text-amber-300 p-1.5 hover:bg-amber-500/10 rounded-lg transition-colors"
+                          title="Histórico de Compras"
+                        >
+                          <ClipboardList size={16} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            const { id, ...copiedProduct } = product;
+                            setEditingProduct({ ...copiedProduct, name: copiedProduct.name + ' (Cópia)' });
+                            setIsModalOpen(true);
+                          }}
+                          className="text-emerald-400 hover:text-emerald-300 p-1.5 hover:bg-emerald-500/10 rounded-lg transition-colors"
+                          title="Duplicar Produto"
+                        >
+                          <Copy size={16} />
+                        </button>
+                        <button
+                          onClick={() => { setEditingProduct(product); setIsModalOpen(true); }}
+                          className="text-blue-400 hover:text-blue-300 p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors"
+                          title="Editar Produto Completo"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProduct(product.id)}
+                          className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Excluir Produto"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }
+              return (
               <React.Fragment key={product.id}>
                 <tr className="hover:bg-slate-800/30 transition-colors">
                   <td className="px-6 py-4 font-medium text-slate-200">
@@ -3907,14 +4470,15 @@ function Products() {
                   </tr>
                 ))}
               </React.Fragment>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-4">
               {editingProduct?.id ? 'Editar Produto' : editingProduct?.parent_id ? 'Nova Variação' : 'Novo Produto'}
             </h3>
@@ -3996,33 +4560,82 @@ function Products() {
                         <input name="stock" type="number" step="0.001" defaultValue={editingProduct?.stock} required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-1">Unidade</label>
+                        <label className="block text-sm font-medium text-slate-400 mb-1">Formato de Compra</label>
                         <select 
-                          name="unit" 
-                          value={saleUnit} 
-                          onChange={(e) => setSaleUnit(e.target.value)}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                          name="purchase_unit"
+                          value={packageFormat}
+                          onChange={(e) => setPackageFormat(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-slate-200 font-medium"
                         >
-                          <option value="un">Unidade (un)</option>
                           <option value="Garrafa">Garrafa</option>
                           <option value="Pacote">Pacote</option>
+                          <option value="Caixa">Caixa</option>
                           <option value="Lata">Lata</option>
-                          <option value="ml">Mililitro (ml)</option>
-                          <option value="l">Litro (l)</option>
-                          <option value="kg">Quilograma (kg)</option>
-                          <option value="g">Grama (g)</option>
-                          <option value="dose">Dose</option>
+                          <option value="Unidade">Unidade</option>
+                          <option value="Fardo">Fardo</option>
+                          <option value="Balde">Balde</option>
                         </select>
                       </div>
-                      <div className="col-span-2 grid grid-cols-2 gap-4 mt-2 p-3 bg-blue-900/10 border border-blue-900/30 rounded-xl">
-                        <div>
-                          <label className="block text-xs font-medium text-blue-400 mb-1">Unidade na Compra (Opcional Geralmente)</label>
-                          <input name="purchase_unit" defaultValue={editingProduct?.purchase_unit} placeholder="Ex: Garrafa, Caixa" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+
+                      {/* BLINDAGEM CONTRA ERROS (KILO vs GRAMA / LITRO vs ML) */}
+                      <div className="col-span-2 bg-slate-800/80 p-4 rounded-xl border border-blue-500/40 shadow-lg shadow-blue-950/40">
+                        <label className="block text-xs font-bold text-blue-300 mb-2 uppercase tracking-wide">
+                          Qual o tamanho total da embalagem / garrafa / pacote?
+                        </label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="number" 
+                            step="0.001"
+                            value={packageSize} 
+                            onChange={(e) => setPackageSize(e.target.value)}
+                            placeholder="Ex: 1 ou 900" 
+                            className="w-28 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-base text-white font-black text-center focus:border-blue-500 outline-none" 
+                          />
+                          <select 
+                            value={packageUnit} 
+                            onChange={(e) => setPackageUnit(e.target.value)}
+                            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-200 font-bold focus:border-blue-500 outline-none cursor-pointer"
+                          >
+                            <option value="L">Litros (L)</option>
+                            <option value="ml">Mililitros (ml)</option>
+                            <option value="kg">Quilos (kg)</option>
+                            <option value="g">Gramas (g)</option>
+                            <option value="un">Unidades (un)</option>
+                          </select>
                         </div>
-                        <div>
-                          <label className="block text-xs font-medium text-blue-400 mb-1">Equivale a (Fator de Conversão)</label>
-                          <input name="unit_conversion_factor" type="number" step="0.001" defaultValue={editingProduct?.unit_conversion_factor || 1} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" title="Quantas unidades de venda vem em 1 unidade de compra? Ex: 1 Garrafa = 1000 ml" />
-                        </div>
+
+                        {/* FEEDBACK IMEDIATO COM CONVERSÃO AUTOMÁTICA */}
+                        {(() => {
+                          const num = parseFloat(packageSize) || 0;
+                          if (num <= 0) return null;
+                          let converted = num;
+                          let label = '';
+                          if (packageUnit === 'L') {
+                            converted = num * 1000;
+                            label = `${converted} ml`;
+                          } else if (packageUnit === 'ml') {
+                            converted = num;
+                            label = `${converted} ml`;
+                          } else if (packageUnit === 'kg') {
+                            converted = num * 1000;
+                            label = `${converted} g (gramas)`;
+                          } else if (packageUnit === 'g') {
+                            converted = num;
+                            label = `${converted} g (gramas)`;
+                          } else {
+                            converted = num;
+                            label = `${converted} unidades (un)`;
+                          }
+
+                          return (
+                            <div className="mt-3 text-sm text-blue-300 flex items-center gap-2 bg-blue-900/30 p-2.5 rounded-lg border border-blue-700/50">
+                              <span className="text-base">🔄</span>
+                              <span>
+                                O sistema converterá e fará o controle fracionado em: <strong className="text-white bg-blue-600 px-2 py-0.5 rounded font-bold font-mono">{label}</strong>
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </>
                   )}
@@ -4202,33 +4815,67 @@ function Products() {
                     </button>
                   </div>
                   <div className="space-y-2">
-                    {ingredients.map((ing, index) => (
-                      <div key={index} className="flex gap-2 items-center">
-                        <select
-                          value={ing.ingredient_id}
-                          onChange={(e) => updateIngredient(index, 'ingredient_id', parseInt(e.target.value))}
-                          className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
-                        >
-                          <option value="">Selecione um produto...</option>
-                          {selectableProducts.map(p => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} ({p.type === 'composition' ? 'Comp.' : `${p.stock} ${p.unit}`})
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          step="0.001"
-                          value={ing.quantity}
-                          onChange={(e) => updateIngredient(index, 'quantity', parseFloat(e.target.value))}
-                          className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
-                          placeholder="Qtd"
-                        />
-                        <button type="button" onClick={() => removeIngredient(index)} className="text-red-400 hover:bg-red-500/10 p-2 rounded">
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ))}
+                    {ingredients.map((ing, index) => {
+                      const linkedProd = products.find(p => p.id === ing.ingredient_id);
+                      const type = getProductMeasurementType(linkedProd);
+                      const compatibleUnits = getCompatibleUnits(linkedProd);
+                      const currentUnit = ing.unit || compatibleUnits[0]?.value || 'un';
+
+                      return (
+                        <div key={index} className="space-y-1">
+                          <div className="flex flex-wrap sm:flex-nowrap gap-2 items-center bg-slate-800/50 p-2.5 rounded-xl border border-slate-700/60">
+                            <select
+                              value={ing.ingredient_id}
+                              onChange={(e) => updateIngredient(index, 'ingredient_id', parseInt(e.target.value))}
+                              className="flex-1 min-w-[200px] bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none text-slate-200 focus:border-blue-500"
+                            >
+                              <option value="">Selecione um produto...</option>
+                              {selectableProducts.map(p => {
+                                const vol = getProductVolume(p);
+                                const pType = getProductMeasurementType(p);
+                                const labelVol = pType === 'liquid' && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'L' : vol + 'ml'}]` :
+                                                 pType === 'solid' && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'kg' : vol + 'g'}]` : '';
+                                return (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name}{labelVol} ({p.stock} {p.purchase_unit || p.unit || 'un'})
+                                  </option>
+                                );
+                              })}
+                            </select>
+
+                            {/* Campo de Retirada do Estoque (100% Limpo) */}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[11px] text-slate-400 font-bold uppercase hidden md:inline">Baixa:</span>
+                              <input
+                                type="number"
+                                step="any"
+                                value={ing.quantity === undefined ? '' : ing.quantity}
+                                onChange={(e) => updateIngredient(index, 'quantity', parseFloat(e.target.value))}
+                                className="w-24 bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2 text-sm font-bold text-white text-center outline-none transition-colors"
+                                placeholder={currentUnit === 'ml' ? '250' : currentUnit === 'g' ? '400' : '1'}
+                                title="Valor a ser retirado do estoque por venda"
+                              />
+
+                              {/* Seletor Amarrado de Unidade */}
+                              <select
+                                value={currentUnit}
+                                onChange={(e) => updateIngredient(index, 'unit', e.target.value)}
+                                className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-slate-200 outline-none cursor-pointer focus:border-blue-500"
+                                title="Unidade de medida para baixa"
+                              >
+                                {compatibleUnits.map(u => (
+                                  <option key={u.value} value={u.value}>{u.label}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <button type="button" onClick={() => removeIngredient(index)} className="text-red-400 hover:bg-red-500/10 p-2 rounded-lg transition-colors shrink-0">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                     {ingredients.length === 0 && (
                       <p className="text-xs text-slate-500 italic">Nenhum ingrediente adicionado.</p>
                     )}
@@ -4325,45 +4972,78 @@ function Products() {
                           </button>
                         </div>
                         
-                        {group.product_modifier_items?.map((item: any, iIdx: number) => (
-                          <div key={iIdx} className="flex gap-2 items-center bg-slate-800/30 p-2 rounded-lg border border-slate-700/30">
-                            <select
-                              value={item.linked_product_id || ''}
-                              onChange={(e) => updateModifierItem(gIdx, iIdx, 'linked_product_id', parseInt(e.target.value))}
-                              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs outline-none"
-                            >
-                              <option value="">Selecione...</option>
-                              {selectableProducts.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                              ))}
-                            </select>
-                            
-                            <input
-                              type="number"
-                              step="0.001"
-                              value={item.quantity === undefined ? 1 : item.quantity}
-                              onChange={(e) => updateModifierItem(gIdx, iIdx, 'quantity', parseFloat(e.target.value))}
-                              className="w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs outline-none"
-                              placeholder="Medida"
-                              title="Medida (Ex: 0.33)"
-                            />
+                        {group.product_modifier_items?.map((item: any, iIdx: number) => {
+                          const linkedProd = products.find(p => p.id === item.linked_product_id);
+                          const type = getProductMeasurementType(linkedProd);
+                          const compatibleUnits = getCompatibleUnits(linkedProd);
+                          const currentUnit = item.unit || compatibleUnits[0]?.value || 'un';
 
-                            <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 rounded-lg border border-slate-700 shadow-inner">
-                              <input 
-                                type="checkbox" 
-                                id={`fixed-${gIdx}-${iIdx}`}
-                                checked={item.is_fixed_price} 
-                                onChange={(e) => updateModifierItem(gIdx, iIdx, 'is_fixed_price', e.target.checked)}
-                                className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-blue-600 focus:ring-0 focus:ring-offset-0"
-                              />
-                              <label htmlFor={`fixed-${gIdx}-${iIdx}`} className="text-[10px] font-bold text-slate-400 uppercase cursor-pointer select-none">Fixo (X)</label>
+                          return (
+                            <div key={iIdx} className="space-y-1">
+                              <div className="flex flex-wrap sm:flex-nowrap gap-2 items-center bg-slate-800/50 p-2.5 rounded-xl border border-slate-700/60 hover:border-slate-600 transition-colors">
+                                <select
+                                  value={item.linked_product_id || ''}
+                                  onChange={(e) => updateModifierItem(gIdx, iIdx, 'linked_product_id', parseInt(e.target.value))}
+                                  className="flex-1 min-w-[200px] bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-medium text-slate-200 outline-none focus:border-blue-500"
+                                >
+                                  <option value="">Selecione o produto...</option>
+                                  {selectableProducts.map(p => {
+                                    const vol = getProductVolume(p);
+                                    const pType = getProductMeasurementType(p);
+                                    const labelVol = pType === 'liquid' && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'L' : vol + 'ml'}]` :
+                                                     pType === 'solid' && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'kg' : vol + 'g'}]` : '';
+                                    return (
+                                      <option key={p.id} value={p.id}>
+                                        {p.name}{labelVol} ({p.stock} {p.purchase_unit || p.unit || 'un'})
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                                
+                                {/* Campo Inteligente e 100% Limpo */}
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-[11px] text-slate-400 font-bold uppercase hidden md:inline">Baixa:</span>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={item.quantity === undefined ? '' : item.quantity}
+                                    onChange={(e) => updateModifierItem(gIdx, iIdx, 'quantity', parseFloat(e.target.value))}
+                                    className="w-24 bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2 text-xs font-bold text-white text-center outline-none transition-colors"
+                                    placeholder={currentUnit === 'ml' ? '250' : currentUnit === 'g' ? '400' : '1'}
+                                    title="Valor a ser retirado do estoque por venda"
+                                  />
+
+                                  {/* Seletor Amarrado de Unidade */}
+                                  <select
+                                    value={currentUnit}
+                                    onChange={(e) => updateModifierItem(gIdx, iIdx, 'unit', e.target.value)}
+                                    className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-200 outline-none cursor-pointer focus:border-blue-500"
+                                    title="Unidade de medida para baixa"
+                                  >
+                                    {compatibleUnits.map(u => (
+                                      <option key={u.value} value={u.value}>{u.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-900 rounded-lg border border-slate-700 shrink-0">
+                                  <input 
+                                    type="checkbox" 
+                                    id={`fixed-${gIdx}-${iIdx}`}
+                                    checked={item.is_fixed_price} 
+                                    onChange={(e) => updateModifierItem(gIdx, iIdx, 'is_fixed_price', e.target.checked)}
+                                    className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                                  />
+                                  <label htmlFor={`fixed-${gIdx}-${iIdx}`} className="text-[10px] font-bold text-slate-400 uppercase cursor-pointer select-none">Fixo (X)</label>
+                                </div>
+
+                                <button type="button" onClick={() => removeModifierItem(gIdx, iIdx)} className="text-slate-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-red-500/10 transition-colors shrink-0">
+                                  <X size={15} />
+                                </button>
+                              </div>
                             </div>
-
-                            <button type="button" onClick={() => removeModifierItem(gIdx, iIdx)} className="text-slate-600 hover:text-red-400 p-1">
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -5036,7 +5716,7 @@ function Purchases() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]); // To map to
 
-  const [view, setView] = useState<'list' | 'new_order' | 'reconcile'>('list');
+  const [view, setView] = useState<'list' | 'new_order' | 'reconcile' | 'audits'>('list');
   const [editingOrder, setEditingOrder] = useState<any>(null);
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<any>(null);
@@ -5044,8 +5724,114 @@ function Purchases() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [productCreationIndex, setProductCreationIndex] = useState<number | null>(null);
 
+  const [audits, setAudits] = useState<any[]>([]);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [activeDropdownIndex, setActiveDropdownIndex] = useState<number | null>(null);
+  const [searchTerms, setSearchTerms] = useState<{ [index: number]: string }>({});
+  const [renameModal, setRenameModal] = useState<{ isOpen: boolean; productId: number | null; currentName: string }>({
+    isOpen: false,
+    productId: null,
+    currentName: ''
+  });
+  const [renameInput, setRenameInput] = useState('');
+  const [historyModal, setHistoryModal] = useState<{
+    isOpen: boolean;
+    product: any;
+    loading: boolean;
+    history: any[];
+  }>({
+    isOpen: false,
+    product: null,
+    loading: false,
+    history: []
+  });
+
   const [reconcileItems, setReconcileItems] = useState<any[]>([]);
-  const [newOrderItems, setNewOrderItems] = useState<any[]>([{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
+  const [newOrderItems, setNewOrderItems] = useState<any[]>([
+    { raw_name: '', clean_name: '', raw_quantity: 1, raw_format: 'Garrafa', raw_size: 1, raw_unit: 'L', raw_unit_price: 0, product_id: null }
+  ]);
+  const [activeNewOrderDropdownIndex, setActiveNewOrderDropdownIndex] = useState<number | null>(null);
+
+  // Novos estados para aprimoramento da conciliação e fornecedores
+  const [reconcileMode, setReconcileMode] = useState<'table' | 'cards'>('table');
+  const [summaryModal, setSummaryModal] = useState<{ isOpen: boolean; order: any | null }>({
+    isOpen: false,
+    order: null
+  });
+  const [orderSupplierId, setOrderSupplierId] = useState<string>('');
+  const [activeReconcileSearchIndex, setActiveReconcileSearchIndex] = useState<number | null>(null);
+  const [expandedPhysicalIndex, setExpandedPhysicalIndex] = useState<number | null>(null);
+  const [newOrderProductSearch, setNewOrderProductSearch] = useState<string>('');
+
+  const handleAddProductToOrder = (prod: any) => {
+    const prodVol = getProductVolume(prod);
+    const prodUnit = prod.unit || 'ml';
+    let prodSize = prodVol > 0 ? prodVol : 1;
+    let prodMedida = prodUnit;
+
+    if (prodUnit === 'ml') {
+      if (prodVol >= 1000 && prodVol % 1000 === 0) {
+        prodSize = prodVol / 1000;
+        prodMedida = 'L';
+      } else {
+        prodMedida = 'ml';
+      }
+    } else if (prodUnit === 'g') {
+      if (prodVol >= 1000 && prodVol % 1000 === 0) {
+        prodSize = prodVol / 1000;
+        prodMedida = 'kg';
+      } else {
+        prodMedida = 'g';
+      }
+    } else {
+      prodMedida = 'un';
+    }
+
+    const newItem = {
+      raw_name: prod.name,
+      clean_name: prod.name,
+      product_id: prod.id,
+      raw_format: prod.purchase_unit || (prod.category_name === 'Garrafa' ? 'Garrafa' : 'Pacote'),
+      raw_size: prodSize,
+      raw_unit: prodMedida,
+      raw_quantity: 1,
+      raw_unit_price: parseFloat(prod.cost_price) || 0
+    };
+
+    setNewOrderItems(prev => {
+      if (prev.length === 1 && !prev[0].raw_name && !prev[0].clean_name) {
+        return [newItem];
+      }
+      return [...prev, newItem];
+    });
+
+    setNewOrderProductSearch('');
+  };
+
+  const handleAddCustomProductToOrder = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const newItem = {
+      raw_name: trimmed,
+      clean_name: trimmed,
+      product_id: null,
+      raw_format: 'Garrafa',
+      raw_size: 1,
+      raw_unit: 'L',
+      raw_quantity: 1,
+      raw_unit_price: 0
+    };
+
+    setNewOrderItems(prev => {
+      if (prev.length === 1 && !prev[0].raw_name && !prev[0].clean_name) {
+        return [newItem];
+      }
+      return [...prev, newItem];
+    });
+
+    setNewOrderProductSearch('');
+  };
 
   useEffect(() => {
     loadData();
@@ -5059,6 +5845,8 @@ function Purchases() {
       setSuppliers(s);
       const o = await api.getPurchaseOrders();
       setOrders(o);
+      const a = await api.getInventoryAudits();
+      setAudits(a || []);
     } catch (err) {
       console.error(err);
     }
@@ -5066,6 +5854,9 @@ function Purchases() {
 
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    const proceedToReconcile = !!(window as any).__proceedToReconcile;
+    (window as any).__proceedToReconcile = false;
+
     const formData = new FormData(e.target as HTMLFormElement);
     const data = {
       id: editingOrder?.id,
@@ -5076,11 +5867,18 @@ function Purchases() {
       notes: formData.get('notes')
     };
     try {
-      await api.savePurchaseOrder(data, newOrderItems);
-      setView('list');
-      setEditingOrder(null);
-      setNewOrderItems([{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
-      loadData();
+      const savedOrder = await api.savePurchaseOrder(data, newOrderItems);
+      const updatedOrders = await api.getPurchaseOrders();
+      setOrders(updatedOrders);
+      await loadData();
+      if (proceedToReconcile) {
+        const orderToReconcile = updatedOrders.find(o => o.id === savedOrder.id) || savedOrder;
+        startReconciliation(orderToReconcile);
+      } else {
+        setView('list');
+        setEditingOrder(null);
+        setNewOrderItems([{ raw_name: '', clean_name: '', raw_quantity: 1, raw_format: 'Garrafa', raw_size: 1, raw_unit: 'L', raw_unit_price: 0, product_id: null }]);
+      }
     } catch (err: any) {
       console.error(err);
       alert('Erro ao criar pedido: ' + (err.message || 'Erro desconhecido'));
@@ -5090,16 +5888,32 @@ function Purchases() {
   const handleSaveSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
+    const name = (formData.get('name') as string)?.trim();
+    if (!name) {
+      alert('Por favor, digite o nome do fornecedor.');
+      return;
+    }
     try {
-      await api.saveSupplier({
+      const saved = await api.saveSupplier({
         id: editingSupplier?.id,
-        name: formData.get('name') as string,
-        document: formData.get('document') as string,
-        phone: formData.get('phone') as string,
+        name: name,
+        document: (formData.get('document') as string)?.trim() || '',
+        phone: (formData.get('phone') as string)?.trim() || '',
       });
       setIsSupplierModalOpen(false);
       setEditingSupplier(null);
-      loadData();
+      await loadData();
+      if (saved?.id) {
+        setOrderSupplierId(saved.id.toString());
+        if (editingOrder) {
+          setEditingOrder((prev: any) => ({
+            ...prev,
+            supplier_id: saved.id,
+            supplier_name: saved.name
+          }));
+        }
+      }
+      alert('Fornecedor cadastrado com sucesso!');
     } catch (err: any) {
       alert('Erro ao salvar fornecedor: ' + err.message);
     }
@@ -5163,39 +5977,298 @@ function Purchases() {
     const totalItemsValue = order.items.reduce((acc: number, item: any) => acc + (item.raw_quantity * item.raw_unit_price), 0);
     const freightAmount = parseFloat(order.freight_amount) || 0;
 
+    const initialSearchTerms: { [index: number]: string } = {};
+
     // Prepare items for reconciliation state
-    setReconcileItems(order.items.map((item: any) => {
+    setReconcileItems(order.items.map((item: any, index: number) => {
       const itemRawValue = item.raw_quantity * item.raw_unit_price;
       const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
       const freightShare = proportion * freightAmount;
       const totalItemCost = itemRawValue + freightShare;
       const unitCostWithFreight = item.raw_quantity > 0 ? (totalItemCost / item.raw_quantity) : 0;
 
+      const cleanName = item.clean_name || item.raw_name?.replace(/\s*\[.*?\]<!--META:.*?-->/, '').replace(/<!--META:.*?-->/, '').trim() || item.raw_name;
+      const rawFormat = item.raw_format || 'Garrafa';
+      const rawSize = item.raw_size !== undefined && item.raw_size !== null ? item.raw_size : 1;
+      const rawUnit = item.raw_unit || 'un';
+
+      // Auto-match por ID ou nome idêntico se existir
+      const rawNameClean = cleanName.toLowerCase();
+      const matched = item.product_id
+        ? products.find(p => p.id === item.product_id)
+        : products.find(p => p.name.trim().toLowerCase() === rawNameClean);
+
+      initialSearchTerms[index] = cleanName || '';
+
+      let initVol = matched?.bottle_volume_ml || matched?.unit_conversion_factor || 0;
+      if (!initVol) {
+        if (rawUnit === 'L' || rawUnit === 'kg') {
+          initVol = (parseFloat(rawSize) || 1) * 1000;
+        } else {
+          initVol = parseFloat(rawSize) || 1;
+        }
+      }
+
       return {
         ...item,
-        product_id: '',
+        clean_name: cleanName,
+        raw_format: rawFormat,
+        raw_size: rawSize,
+        raw_unit: rawUnit,
+        product_id: matched ? matched.id : '',
+        pack_multiplier: item.pack_multiplier || 1,
         reconciled_quantity: item.raw_quantity,
-        reconciled_unit_cost: unitCostWithFreight
+        reconciled_unit_cost: unitCostWithFreight,
+        physical_count: '',
+        reason: 'Não Identificado (Sumiço)',
+        bottle_volume_ml: initVol
       };
     }));
+
+    setSearchTerms(initialSearchTerms);
+    setActiveDropdownIndex(null);
+    setActiveReconcileSearchIndex(null);
+    setExpandedPhysicalIndex(null);
+    setReconcileMode('table');
     setView('reconcile');
   };
 
+  const updateReconcileItem = (index: number, updates: Partial<any>) => {
+    setReconcileItems(prevItems => {
+      const newItems = [...prevItems];
+      const item = { ...newItems[index], ...updates };
+
+      // Calculate freight proportion
+      const totalItemsValue = newItems.reduce((acc, i) => acc + ((parseFloat(i.raw_quantity) || 0) * (parseFloat(i.raw_unit_price) || 0)), 0);
+      const freightAmount = parseFloat(editingOrder?.freight_amount) || 0;
+      const itemRawValue = (parseFloat(item.raw_quantity) || 0) * (parseFloat(item.raw_unit_price) || 0);
+      const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
+      const freightShare = proportion * freightAmount;
+      const totalItemCost = itemRawValue + freightShare;
+
+      // If multiplier changed, recalculate reconciled_quantity
+      if ('pack_multiplier' in updates) {
+        const mult = parseFloat(updates.pack_multiplier) || 1;
+        item.pack_multiplier = mult;
+        item.reconciled_quantity = (parseFloat(item.raw_quantity) || 0) * mult;
+      }
+
+      // Recalculate reconciled_unit_cost based on reconciled_quantity
+      const finalQty = parseFloat(item.reconciled_quantity) || 0;
+      if (finalQty > 0) {
+        item.reconciled_unit_cost = totalItemCost / finalQty;
+      } else {
+        item.reconciled_unit_cost = parseFloat(item.raw_unit_price) || 0;
+      }
+
+      newItems[index] = item;
+      return newItems;
+    });
+  };
+
+  const handleRenameProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameModal.productId || !renameInput.trim()) return;
+    try {
+      await api.updateProductName(renameModal.productId, renameInput.trim());
+      setProducts(prev => prev.map(p => p.id === renameModal.productId ? { ...p, name: renameInput.trim() } : p));
+      setRenameModal({ isOpen: false, productId: null, currentName: '' });
+      alert('Nome do produto atualizado com sucesso no banco de dados!');
+    } catch (err: any) {
+      alert('Erro ao renomear produto: ' + (err.message || 'Erro desconhecido'));
+    }
+  };
+
+  const handleOpenPurchaseHistory = async (product: any) => {
+    if (!product || !product.id) return;
+    setHistoryModal({ isOpen: true, product, loading: true, history: [] });
+    try {
+      const history = await api.getProductPurchaseHistory(product.id);
+      setHistoryModal({ isOpen: true, product, loading: false, history: history || [] });
+    } catch (err) {
+      console.error('Erro ao buscar histórico de compras:', err);
+      setHistoryModal({ isOpen: true, product, loading: false, history: [] });
+    }
+  };
+
   const handleReconcile = async () => {
-    if (!confirm('Confirmar conciliação? Isso atualizará o estoque e preços de custo.')) return;
+    const unlinked = reconcileItems.filter(i => !i.product_id);
+    if (unlinked.length > 0) {
+      if (!confirm(`Atenção: ${unlinked.length} item(ns) da nota não estão vinculados a nenhum produto interno e serão ignorados. Deseja continuar?`)) {
+        return;
+      }
+    }
+
+    if (!confirm('Confirmar conciliação e auditoria? Isso atualizará o estoque real e registrará eventuais divergências no cofre de perdas.')) return;
+
     try {
       await api.reconcilePurchaseOrder(editingOrder.id, reconcileItems);
+
+      // Atualiza fornecedor no pedido se foi alterado
+      if (editingOrder.supplier_id) {
+        try {
+          await api.savePurchaseOrder({
+            id: editingOrder.id,
+            supplier_id: editingOrder.supplier_id,
+            invoice_number: editingOrder.invoice_number,
+            total_amount: editingOrder.total_amount,
+            freight_amount: editingOrder.freight_amount,
+            notes: editingOrder.notes
+          }, reconcileItems);
+        } catch (supErr) {
+          console.warn('Fornecedor salvo durante conciliação');
+        }
+      }
+
+      await loadData();
+
+      // Abrir lista / relatório de visualização da conciliação concluída
+      const completedOrder = {
+        ...editingOrder,
+        items: reconcileItems,
+        status: 'reconciled',
+        reconciled_at: new Date().toISOString()
+      };
+      setSummaryModal({ isOpen: true, order: completedOrder });
       setView('list');
       setEditingOrder(null);
-      loadData();
-    } catch (err) {
-      alert('Erro ao conciliar pedido');
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao conciliar pedido: ' + (err.message || 'Erro desconhecido'));
     }
+  };
+
+  const renderSupplierModal = () => {
+    if (!isSupplierModalOpen) return null;
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <span className="text-blue-400">🏢</span>
+              <span>{editingSupplier ? 'Editar Fornecedor' : 'Cadastrar Novo Fornecedor'}</span>
+            </h3>
+            <button
+              type="button"
+              onClick={() => { setIsSupplierModalOpen(false); setEditingSupplier(null); }}
+              className="text-slate-400 hover:text-white transition-colors"
+            >
+              <XCircle size={24} />
+            </button>
+          </div>
+
+          <form onSubmit={handleSaveSupplier} className="bg-slate-800/60 border border-slate-700 p-4 rounded-xl mb-6 space-y-4 shadow-inner">
+            <h4 className="font-bold text-sm text-blue-400">
+              {editingSupplier ? 'Editar Dados do Fornecedor' : 'Novo Fornecedor'}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Nome / Razão Social *</label>
+                <input
+                  name="name"
+                  defaultValue={editingSupplier?.name}
+                  required
+                  placeholder="Ex: Ambev, Distribuidora XYZ"
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-sm text-white outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">CNPJ / CPF</label>
+                <input
+                  name="document"
+                  defaultValue={editingSupplier?.document}
+                  placeholder="00.000.000/0000-00"
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-sm text-white outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Telefone / WhatsApp</label>
+                <input
+                  name="phone"
+                  defaultValue={editingSupplier?.phone}
+                  placeholder="(00) 00000-0000"
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-sm text-white outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              {editingSupplier && (
+                <button
+                  type="button"
+                  onClick={() => setEditingSupplier(null)}
+                  className="text-slate-400 text-sm px-4 py-2 hover:text-white"
+                >
+                  Cancelar Edição
+                </button>
+              )}
+              <button
+                type="submit"
+                className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-5 py-2.5 rounded-lg font-bold shadow-lg transition-transform active:scale-95 flex items-center gap-1.5"
+              >
+                <span>{editingSupplier ? 'Salvar Alterações' : 'Cadastrar Fornecedor'}</span>
+              </button>
+            </div>
+          </form>
+
+          <div className="border-t border-slate-800 pt-3">
+            <h5 className="text-xs font-bold uppercase text-slate-400 tracking-wider mb-2">
+              Fornecedores Cadastrados ({suppliers.length})
+            </h5>
+          </div>
+
+          <div className="overflow-y-auto flex-1 max-h-60 border border-slate-800 rounded-xl">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-800/80 text-slate-400 font-medium text-xs">
+                <tr>
+                  <th className="px-4 py-2">Nome</th>
+                  <th className="px-4 py-2">Documento</th>
+                  <th className="px-4 py-2">Telefone</th>
+                  <th className="px-4 py-2 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {suppliers.map(s => (
+                  <tr key={s.id} className="hover:bg-slate-800/40">
+                    <td className="px-4 py-2.5 text-slate-200 font-bold">{s.name}</td>
+                    <td className="px-4 py-2.5 text-slate-400 font-mono text-xs">{s.document || '-'}</td>
+                    <td className="px-4 py-2.5 text-slate-400 text-xs">{s.phone || '-'}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setEditingSupplier(s)}
+                        className="text-blue-400 p-1.5 hover:bg-blue-500/10 rounded"
+                        title="Editar fornecedor"
+                      >
+                        <Edit size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSupplier(s.id)}
+                        className="text-red-400 p-1.5 hover:bg-red-500/10 rounded ml-1"
+                        title="Excluir fornecedor"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {suppliers.length === 0 && (
+                  <tr><td colSpan={4} className="text-center py-6 text-slate-500 italic">Nenhum fornecedor cadastrado.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (view === 'new_order') {
     // calculate sum of items automatically to show the user
     const itemsTotal = newOrderItems.reduce((acc, item) => acc + ((item.raw_quantity || 0) * (item.raw_unit_price || 0)), 0);
+    const matchingProductsQuick = products.filter(p =>
+      newOrderProductSearch.trim() && p.name.toLowerCase().includes(newOrderProductSearch.toLowerCase().trim())
+    ).slice(0, 8);
 
     return (
       <div className="space-y-6">
@@ -5206,8 +6279,22 @@ function Purchases() {
         <form onSubmit={handleCreateOrder} className="bg-slate-900 border border-slate-700 p-6 rounded-2xl space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Fornecedor</label>
-              <select name="supplier_id" defaultValue={editingOrder?.supplier_id || ''} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2">
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-sm text-slate-400">Fornecedor</label>
+                <button
+                  type="button"
+                  onClick={() => { setEditingSupplier(null); setIsSupplierModalOpen(true); }}
+                  className="text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-colors"
+                >
+                  + Novo Fornecedor
+                </button>
+              </div>
+              <select
+                name="supplier_id"
+                value={orderSupplierId}
+                onChange={(e) => setOrderSupplierId(e.target.value)}
+                className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-white"
+              >
                 <option value="">Sem fornecedor / Avulso</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
@@ -5230,62 +6317,381 @@ function Purchases() {
             </div>
           </div>
 
-          <div className="mt-6">
-            <h3 className="text-lg font-bold mb-2">Itens da Nota (Cru)</h3>
-            <p className="text-xs text-slate-400 mb-4">Adicione os itens conforme vieram escritos na nota fiscal.</p>
-            {newOrderItems.map((item, index) => (
-              <div key={index} className="flex gap-2 mb-2 items-center flex-wrap sm:flex-nowrap">
-                <input
-                  placeholder="Nome exato na nota" required
-                  value={item.raw_name}
-                  onChange={(e) => {
-                    const newItems = [...newOrderItems];
-                    newItems[index].raw_name = e.target.value;
-                    setNewOrderItems(newItems);
-                  }}
-                  className="flex-1 bg-slate-800 border-slate-700 rounded-lg p-2" />
-                <input
-                  type="number" step="1" placeholder="Qtd" required title="Quantidade Inteira (ex: 2)"
-                  value={item.raw_quantity}
-                  onChange={(e) => {
-                    const newItems = [...newOrderItems];
-                    newItems[index].raw_quantity = parseInt(e.target.value) || 0;
-                    setNewOrderItems(newItems);
-                  }}
-                  className="w-24 bg-slate-800 border-slate-700 rounded-lg p-2" />
-                <input
-                  type="number" step="0.01" placeholder="Custo Un." required title="Valor Unitário de Custo"
-                  value={item.raw_unit_price}
-                  onChange={(e) => {
-                    const newItems = [...newOrderItems];
-                    newItems[index].raw_unit_price = parseFloat(e.target.value) || 0;
-                    setNewOrderItems(newItems);
-                  }}
-                  className="w-28 bg-slate-800 border-slate-700 rounded-lg p-2" />
+          <div className="mt-6 space-y-4">
+            <div className="flex justify-between items-center flex-wrap gap-2">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>📋 Itens da Compra (Nota Fiscal)</span>
+                  <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-medium">
+                    Mesmo formato da sua tabela de produtos
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Adicione os produtos pela busca aberta abaixo ou preencha a tabela de itens.
+                </p>
+              </div>
+            </div>
 
-                <div className="w-32 bg-slate-800/50 border-slate-700 rounded-lg p-2 text-slate-300 text-sm flex items-center justify-end font-mono">
-                  R$ {((item.raw_quantity || 0) * (item.raw_unit_price || 0)).toFixed(2)}
+            {/* BARRA DE BUSCA ABERTA E ESPAÇOSA DE PRODUTOS (NUNCA PRESA!) */}
+            <div className="bg-slate-950/90 border border-blue-500/40 rounded-2xl p-4 shadow-xl space-y-3">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5 uppercase tracking-wider">
+                  🔍 Buscar Produto no Estoque ou Adicionar Novo
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  {matchingProductsQuick.length > 0 && newOrderProductSearch.trim()
+                    ? `${matchingProductsQuick.length} produto(s) encontrado(s)`
+                    : 'Puxe do estoque com 1 clique ou digite um novo'}
+                </span>
+              </div>
+
+              <div className="relative">
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3.5 text-slate-400 pointer-events-none" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Digite o nome do produto no estoque (ex: Heineken, Vodka, Arroz, Café...)"
+                    value={newOrderProductSearch}
+                    onChange={(e) => setNewOrderProductSearch(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-xl pl-10 pr-24 py-3 text-sm text-white placeholder-slate-500 font-medium outline-none transition-colors shadow-inner"
+                  />
+                  {newOrderProductSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setNewOrderProductSearch('')}
+                      className="absolute right-3 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700"
+                    >
+                      Limpar ✕
+                    </button>
+                  )}
                 </div>
 
-                <button type="button" onClick={() => setNewOrderItems(newOrderItems.filter((_, i) => i !== index))} className="text-red-400 p-2"><Trash2 size={16} /></button>
-              </div>
-            ))}
+                {/* RESULTADOS DA BUSCA ABERTA (TOTALMENTE VISÍVEL E ESPAÇOSA) */}
+                {newOrderProductSearch.trim().length > 0 && (
+                  <div className="mt-3 bg-slate-900 border border-slate-700 rounded-xl p-3 max-h-72 overflow-y-auto space-y-2 shadow-2xl">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex justify-between items-center px-1">
+                      <span>Sugestões do seu Estoque</span>
+                      <span className="text-blue-400 font-normal">Clique para adicionar à compra</span>
+                    </div>
 
-            <div className="flex justify-between items-center mt-2">
-              <button type="button" onClick={() => setNewOrderItems([...newOrderItems, { raw_name: '', raw_quantity: 1, raw_unit_price: 0 }])} className="text-blue-400 text-sm font-bold">+ Adicionar Linha</button>
-              <div className="text-sm font-bold text-slate-300 flex items-center gap-2">
-                <span>Soma Parcial: </span>
-                <span className="text-emerald-400">
+                    {matchingProductsQuick.length > 0 ? (
+                      matchingProductsQuick.map(p => {
+                        const prodVol = getProductVolume(p);
+                        const prodUnit = p.unit || 'ml';
+                        let prodSize = prodVol > 0 ? prodVol : 1;
+                        let prodMedida = prodUnit;
+
+                        if (prodUnit === 'ml') {
+                          if (prodVol >= 1000 && prodVol % 1000 === 0) {
+                            prodSize = prodVol / 1000;
+                            prodMedida = 'L';
+                          } else {
+                            prodMedida = 'ml';
+                          }
+                        } else if (prodUnit === 'g') {
+                          if (prodVol >= 1000 && prodVol % 1000 === 0) {
+                            prodSize = prodVol / 1000;
+                            prodMedida = 'kg';
+                          } else {
+                            prodMedida = 'g';
+                          }
+                        } else {
+                          prodMedida = 'un';
+                        }
+
+                        const pFormat = p.purchase_unit || (p.category_name === 'Garrafa' ? 'Garrafa' : 'Pacote');
+
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => handleAddProductToOrder(p)}
+                            className="p-3 bg-slate-950/70 hover:bg-blue-600/20 border border-slate-800 hover:border-blue-500/50 rounded-xl cursor-pointer flex justify-between items-center gap-3 transition-colors group"
+                          >
+                            <div>
+                              <p className="text-sm font-bold text-white group-hover:text-blue-300">{p.name}</p>
+                              <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5 flex-wrap">
+                                <span className="bg-slate-800 px-2 py-0.5 rounded text-[11px] text-slate-300 font-medium">
+                                  {p.category_name || 'Sem cat.'}
+                                </span>
+                                <span>Formato: <strong className="text-slate-200">{pFormat} ({prodSize}{prodMedida})</strong></span>
+                                <span>•</span>
+                                <span>Estoque Atual: <strong className="text-emerald-400 font-bold">{p.stock || 0} {p.unit || ''}</strong></span>
+                                {p.cost_price > 0 && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Último custo: <strong className="text-slate-300 font-mono">R$ {parseFloat(p.cost_price).toFixed(2)}</strong></span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <span className="bg-blue-600/30 group-hover:bg-blue-600 text-blue-300 group-hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1 shadow-sm">
+                              + Adicionar à Compra ➔
+                            </span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="p-3 text-center text-xs text-slate-400 italic bg-slate-950/50 rounded-lg">
+                        Nenhum produto com esse nome no estoque.
+                      </div>
+                    )}
+
+                    {/* BOTÃO PARA ADICIONAR ITEM AVULSO / NOVO */}
+                    <div
+                      onClick={() => handleAddCustomProductToOrder(newOrderProductSearch)}
+                      className="p-3 bg-emerald-950/30 hover:bg-emerald-900/40 border border-emerald-500/40 rounded-xl cursor-pointer flex justify-between items-center gap-3 transition-colors group mt-2"
+                    >
+                      <div>
+                        <p className="text-sm font-bold text-emerald-300">
+                          + Adicionar "{newOrderProductSearch.trim()}" como novo produto na nota
+                        </p>
+                        <p className="text-xs text-emerald-400/80 mt-0.5">
+                          Item novo / ainda não catalogado no estoque. Você poderá conciliar ou catalogar depois.
+                        </p>
+                      </div>
+                      <span className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shadow-sm">
+                        Adicionar Novo ➔
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* TABELA DE ITENS DA NOTA */}
+            <div className="overflow-x-auto border border-slate-700/80 rounded-xl bg-slate-950/60 shadow-xl">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[11px] font-black uppercase text-slate-400 bg-slate-900/90 tracking-wider">
+                    <th className="px-3 py-3 min-w-[280px]">PRODUTO</th>
+                    <th className="px-2 py-3 w-20 text-center">QTD</th>
+                    <th className="px-2 py-3 w-28 text-center">FORMATO</th>
+                    <th className="px-2 py-3 w-24 text-center">TAMANHO</th>
+                    <th className="px-2 py-3 w-24 text-center">MEDIDA</th>
+                    <th className="px-2 py-3 w-28 text-right">CUSTO</th>
+                    <th className="px-3 py-3 w-28 text-right">TOTAL</th>
+                    <th className="px-2 py-3 w-12 text-center">AÇÕES</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {newOrderItems.map((item, index) => {
+                    const linkedProduct = products.find(p => p.id === item.product_id);
+
+                    return (
+                      <tr key={index} className="hover:bg-slate-900/40 transition-colors">
+                        {/* 1. PRODUTO (LIMPO, ESPAÇOSO, SEM DROPDOWNS PRESOS) */}
+                        <td className="px-3 py-2.5 min-w-[280px]">
+                          {item.product_id && linkedProduct ? (
+                            <div className="bg-slate-900/90 border border-emerald-500/40 rounded-lg p-2 flex justify-between items-center gap-2">
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-emerald-400 font-bold text-xs">✓</span>
+                                  <span className="text-white font-bold text-xs">{item.clean_name || item.raw_name}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                  <span className="bg-emerald-500/10 text-emerald-300 px-1 rounded font-medium">Vinculado ao Estoque</span>
+                                  <span>(Atual: {linkedProduct.stock || 0} {linkedProduct.unit || ''})</span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newItems = [...newOrderItems];
+                                  newItems[index].product_id = null;
+                                  setNewOrderItems(newItems);
+                                }}
+                                className="text-[10px] bg-slate-800 hover:bg-slate-700 text-blue-400 px-2 py-1 rounded border border-slate-700 font-bold transition-colors whitespace-nowrap"
+                                title="Desvincular produto para editar livremente"
+                              >
+                                Desvincular
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <input
+                                placeholder="Nome do produto na nota..."
+                                required
+                                value={item.clean_name || item.raw_name}
+                                onChange={(e) => {
+                                  const newItems = [...newOrderItems];
+                                  newItems[index].raw_name = e.target.value;
+                                  newItems[index].clean_name = e.target.value;
+                                  setNewOrderItems(newItems);
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs font-bold focus:border-blue-500 outline-none"
+                              />
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
+                                <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-medium">
+                                  Item Avulso / NF
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNewOrderProductSearch(item.clean_name || item.raw_name);
+                                  }}
+                                  className="text-blue-400 hover:underline font-medium"
+                                >
+                                  🔍 Puxar do Estoque
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 2. QTD */}
+                        <td className="px-2 py-2.5 w-20 text-center">
+                          <input
+                            type="number"
+                            step="any"
+                            placeholder="Qtd"
+                            required
+                            value={item.raw_quantity}
+                            onChange={(e) => {
+                              const newItems = [...newOrderItems];
+                              newItems[index].raw_quantity = parseFloat(e.target.value) || 0;
+                              setNewOrderItems(newItems);
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-center text-white font-black text-xs outline-none focus:border-blue-500"
+                          />
+                        </td>
+
+                        {/* 3. FORMATO */}
+                        <td className="px-2 py-2.5 w-28 text-center">
+                          <select
+                            value={item.raw_format || 'Garrafa'}
+                            onChange={(e) => {
+                              const newItems = [...newOrderItems];
+                              newItems[index].raw_format = e.target.value;
+                              setNewOrderItems(newItems);
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-bold outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            <option value="Garrafa">Garrafa</option>
+                            <option value="Pacote">Pacote</option>
+                            <option value="Caixa">Caixa</option>
+                            <option value="Lata">Lata</option>
+                            <option value="Fardo">Fardo</option>
+                            <option value="Barril">Barril</option>
+                            <option value="Unidade">Unidade</option>
+                            <option value="Balde">Balde</option>
+                          </select>
+                        </td>
+
+                        {/* 4. TAMANHO */}
+                        <td className="px-2 py-2.5 w-24 text-center">
+                          <input
+                            type="number"
+                            step="any"
+                            placeholder="Ex: 750"
+                            value={item.raw_size !== undefined && item.raw_size !== null ? item.raw_size : 1}
+                            onChange={(e) => {
+                              const newItems = [...newOrderItems];
+                              newItems[index].raw_size = parseFloat(e.target.value) || 0;
+                              setNewOrderItems(newItems);
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-center text-white font-bold text-xs outline-none focus:border-blue-500"
+                          />
+                        </td>
+
+                        {/* 5. MEDIDA */}
+                        <td className="px-2 py-2.5 w-24 text-center">
+                          <select
+                            value={item.raw_unit || 'ml'}
+                            onChange={(e) => {
+                              const newItems = [...newOrderItems];
+                              newItems[index].raw_unit = e.target.value;
+                              setNewOrderItems(newItems);
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 font-bold outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            <option value="ml">ml</option>
+                            <option value="L">L</option>
+                            <option value="g">g</option>
+                            <option value="kg">kg</option>
+                            <option value="un">un</option>
+                          </select>
+                        </td>
+
+                        {/* 6. CUSTO */}
+                        <td className="px-2 py-2.5 w-28 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="0,00"
+                            required
+                            value={item.raw_unit_price}
+                            onChange={(e) => {
+                              const newItems = [...newOrderItems];
+                              newItems[index].raw_unit_price = parseFloat(e.target.value) || 0;
+                              setNewOrderItems(newItems);
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-right text-white font-mono font-bold text-xs outline-none focus:border-blue-500"
+                          />
+                        </td>
+
+                        {/* 7. TOTAL */}
+                        <td className="px-3 py-2.5 w-28 text-right font-mono font-black text-emerald-400 text-xs">
+                          R$ {(((parseFloat(item.raw_quantity) || 0) * (parseFloat(item.raw_unit_price) || 0))).toFixed(2)}
+                        </td>
+
+                        {/* 8. AÇÕES */}
+                        <td className="px-2 py-2.5 w-12 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setNewOrderItems(newOrderItems.filter((_, i) => i !== index))}
+                            className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="Remover linha"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-between items-center mt-3 flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setNewOrderItems([...newOrderItems, { raw_name: '', clean_name: '', raw_quantity: 1, raw_format: 'Garrafa', raw_size: 1, raw_unit: 'L', raw_unit_price: 0, product_id: null }])}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
+              >
+                + Adicionar Outra Linha Manual
+              </button>
+              <div className="text-sm font-bold text-slate-300 flex items-center gap-2 bg-slate-900 px-4 py-2 rounded-xl border border-slate-800">
+                <span>Total dos Produtos: </span>
+                <span className="text-emerald-400 font-mono text-base font-black">
                   R$ {itemsTotal.toFixed(2)}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-slate-700">
-            <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold">Salvar Pedido</button>
+          <div className="flex justify-between items-center pt-4 border-t border-slate-700 flex-wrap gap-3">
+            <span className="text-xs text-slate-400">
+              💡 Você pode salvar agora e conciliar depois, ou clicar em "Salvar e Abrir Balanço" para conferir na hora.
+            </span>
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                onClick={() => { (window as any).__proceedToReconcile = false; }}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-5 py-2.5 rounded-xl font-medium border border-slate-700 transition-colors"
+              >
+                Salvar Apenas Pedido
+              </button>
+              <button
+                type="submit"
+                onClick={() => { (window as any).__proceedToReconcile = true; }}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-900/30 transition-transform active:scale-95"
+              >
+                <CheckCircle size={18} /> Salvar e Abrir Balanço Cego Agora
+              </button>
+            </div>
           </div>
         </form>
+        {renderSupplierModal()}
       </div>
     );
   }
@@ -5293,145 +6699,1094 @@ function Purchases() {
   if (view === 'reconcile' && editingOrder) {
     return (
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold">Conciliar Pedido #{editingOrder.id}</h2>
-          <button onClick={() => setView('list')} className="text-slate-400 hover:text-white">Cancelar</button>
-        </div>
-        <div className="bg-slate-900 border border-slate-700 p-6 rounded-2xl space-y-4">
-          <p className="text-sm text-slate-400 mb-4">Mapeie cada item da nota para um produto do sistema e informe qual foi a quantidade equivalente que será dada de entrada no estoque.</p>
-
-          {(editingOrder.freight_amount > 0) && (
-            <div className="mb-4 bg-orange-500/20 text-orange-400 p-3 rounded-xl text-sm font-medium border border-orange-500/30">
-              Custo de frete rateado: O valor do frete (R$ {editingOrder.freight_amount?.toFixed(2)}) será distribuído proporcionalmente no custo de cada produto.
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl flex flex-wrap justify-between items-center gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🕵️</span>
+              <h2 className="text-2xl font-bold text-white">Auditoria e Conciliação de Nota (Ação 2)</h2>
             </div>
-          )}
-
-          {reconcileItems.map((item, index) => (
-            <div key={item.id} className="border border-slate-800 p-4 rounded-xl mb-4 bg-slate-950/50">
-              <div className="grid grid-cols-2 gap-4 mb-2">
-                <div>
-                  <label className="block text-xs text-slate-500 uppercase">Item na Nota</label>
-                  <p className="font-bold">{item.raw_name}</p>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 uppercase">Veio na Nota</label>
-                  <p>{item.raw_quantity} un x R$ {item.raw_unit_price} = R$ {(item.raw_quantity * item.raw_unit_price).toFixed(2)}</p>
-                </div>
+            <div className="flex items-center gap-3 mt-2 flex-wrap text-sm text-slate-400">
+              <div className="flex items-center gap-2">
+                <span>Fornecedor:</span>
+                <select
+                  value={editingOrder.supplier_id || ''}
+                  onChange={(e) => {
+                    const supId = e.target.value;
+                    const found = suppliers.find(s => s.id.toString() === supId);
+                    setEditingOrder({
+                      ...editingOrder,
+                      supplier_id: supId ? parseInt(supId) : null,
+                      supplier_name: found ? found.name : 'Avulso'
+                    });
+                  }}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-bold outline-none"
+                >
+                  <option value="">Sem fornecedor / Avulso</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => { setEditingSupplier(null); setIsSupplierModalOpen(true); }}
+                  className="text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-md font-bold transition-colors"
+                  title="Cadastrar fornecedor agora"
+                >
+                  + Novo
+                </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 items-end">
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="block text-sm text-emerald-400">Produto no Sistema</label>
-                    <button
-                      onClick={() => {
-                        setProductCreationIndex(index);
-                        setIsProductModalOpen(true);
-                      }}
-                      className="text-xs text-blue-400 hover:text-blue-300 font-medium"
-                    >
-                      + Novo
-                    </button>
-                  </div>
-                  <select
-                    value={item.product_id}
-                    onChange={(e) => {
-                      const newItems = [...reconcileItems];
-                      const newId = parseInt(e.target.value) || '';
-                      newItems[index].product_id = newId;
-
-                      const selectedProduct = products.find(p => p.id === newId);
-                      let newQty = item.raw_quantity || 0;
-                      if (selectedProduct && selectedProduct.unit_conversion_factor) {
-                        const factor = parseFloat(selectedProduct.unit_conversion_factor);
-                        if (factor > 0) newQty = newQty * factor;
-                      }
-
-                      newItems[index].reconciled_quantity = newQty;
-
-                      if (newQty > 0) {
-                        const totalItemsValue = reconcileItems.reduce((acc, i) => acc + (i.raw_quantity * i.raw_unit_price), 0);
-                        const freightAmount = parseFloat(editingOrder.freight_amount) || 0;
-                        const itemRawValue = item.raw_quantity * item.raw_unit_price;
-                        const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
-                        const freightShare = proportion * freightAmount;
-                        const totalItemCost = itemRawValue + freightShare;
-
-                        newItems[index].reconciled_unit_cost = totalItemCost / newQty;
-                      }
-
-                      setReconcileItems(newItems);
-                    }}
-                    className="w-full bg-slate-800 border-slate-700 rounded-lg p-2">
-                    <option value="">(Não vincular / Pular)</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
-                  </select>
-                  {item.product_id && products.find(p => p.id === item.product_id)?.unit_conversion_factor > 1 && (
-                    <p className="text-xs text-blue-400 mt-1">Conversão Automática: x{products.find(p => p.id === item.product_id)?.unit_conversion_factor}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm text-emerald-400 mb-1">Efetivar Qtd (Garrafas/Un)</label>
-                  <input
-                    type="number" step="0.001"
-                    value={item.reconciled_quantity}
-                    onChange={(e) => {
-                      const newItems = [...reconcileItems];
-                      const newQty = parseFloat(e.target.value) || 0;
-                      newItems[index].reconciled_quantity = newQty;
-
-                      if (newQty > 0) {
-                        const totalItemsValue = reconcileItems.reduce((acc, i) => acc + (i.raw_quantity * i.raw_unit_price), 0);
-                        const freightAmount = parseFloat(editingOrder.freight_amount) || 0;
-                        const itemRawValue = item.raw_quantity * item.raw_unit_price;
-                        const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
-                        const freightShare = proportion * freightAmount;
-                        const totalItemCost = itemRawValue + freightShare;
-
-                        newItems[index].reconciled_unit_cost = totalItemCost / newQty;
-                      }
-                      setReconcileItems(newItems);
-                    }}
-                    className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
-                </div>
-                <div>
-                  <label className="block text-sm text-emerald-400 mb-1">Custo Novo (R$)</label>
-                  <input
-                    type="number" step="0.01" readOnly disabled
-                    value={item.reconciled_unit_cost?.toFixed(2) || '0.00'}
-                    className="w-full bg-slate-800/50 border-slate-800 rounded-lg p-2 text-slate-400 text-center" />
-                </div>
+              <span className="text-slate-600">|</span>
+              <div>
+                Nota Fiscal: <span className="text-slate-200 font-semibold">{editingOrder.invoice_number || 'S/N'}</span>
               </div>
-              {/* Bottle volume for Garrafa products */}
-              {item.product_id && products.find(p => p.id === item.product_id)?.category_name === 'Garrafa' && (
-                <div className="mt-3 p-3 bg-amber-900/10 border border-amber-900/30 rounded-xl">
-                  <label className="block text-xs font-bold text-amber-400 mb-1">🍾 Volume da Garrafa (ml)</label>
-                  <input
-                    type="number" step="1" placeholder="Ex: 750, 1000"
-                    value={item.bottle_volume_ml || products.find(p => p.id === item.product_id)?.bottle_volume_ml || ''}
-                    onChange={(e) => {
-                      const newItems = [...reconcileItems];
-                      newItems[index].bottle_volume_ml = parseFloat(e.target.value) || 0;
-                      setReconcileItems(newItems);
-                    }}
-                    className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm" />
-                  <p className="text-xs text-slate-500 mt-1">Informe o volume de cada garrafa para calcular o estoque em ml.</p>
-                </div>
-              )}
             </div>
-          ))}
+          </div>
+          <div className="flex gap-3 items-center flex-wrap">
+            <div className="bg-slate-800 p-1 rounded-xl border border-slate-700 flex gap-1 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setReconcileMode('table')}
+                className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${reconcileMode === 'table' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+              >
+                📋 Modo Lista / Tabela
+              </button>
+              <button
+                type="button"
+                onClick={() => setReconcileMode('cards')}
+                className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${reconcileMode === 'cards' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+              >
+                🗂️ Modo Cartões
+              </button>
+            </div>
 
-          <div className="flex justify-end pt-4">
-            <button onClick={handleReconcile} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2">
-              <CheckCircle size={20} /> Salvar e Efetivar Estoque
+            <button
+              onClick={() => { setView('list'); setEditingOrder(null); }}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl font-medium transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleReconcile}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-900/30 transition-transform active:scale-95"
+            >
+              <CheckCircle size={20} /> Salvar Conferência
             </button>
           </div>
         </div>
 
+        {editingOrder.freight_amount > 0 && (
+          <div className="bg-orange-500/10 text-orange-300 p-4 rounded-xl text-sm font-medium border border-orange-500/30 flex items-center gap-3">
+            <span className="text-xl">🚚</span>
+            <div>
+              <strong>Custo de Frete Rateado:</strong> O valor de R$ {editingOrder.freight_amount?.toFixed(2)} foi distribuído proporcionalmente ao custo de cada produto.
+            </div>
+          </div>
+        )}
+
+        {reconcileMode === 'table' ? (
+          <div className="space-y-4">
+            {/* BARRA DE RESUMO DO STATUS DOS ITENS */}
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex justify-between items-center flex-wrap gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-slate-300">Progresso dos Vínculos:</span>
+                <span className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-full text-xs font-black">
+                  {reconcileItems.filter(i => i.product_id).length} de {reconcileItems.length} itens vinculados
+                </span>
+                {reconcileItems.filter(i => !i.product_id).length > 0 ? (
+                  <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                    ⚠️ {reconcileItems.filter(i => !i.product_id).length} pendente(s) de vínculo
+                  </span>
+                ) : (
+                  <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                    ✅ Todos os itens vinculados ao estoque!
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400">
+                💡 Vincule cada item ao produto do sistema e confirme a embalagem para atualizar o estoque.
+              </p>
+            </div>
+
+            {/* TABELA PRINCIPAL DA CONCILIAÇÃO */}
+            <div className="overflow-x-auto border border-slate-800 rounded-2xl bg-slate-950/60 shadow-xl">
+              <table className="w-full text-left text-sm border-collapse min-w-[980px]">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[11px] font-black uppercase text-slate-400 bg-slate-900/90 tracking-wider">
+                    <th className="px-4 py-3.5 w-1/4">ITEM NA NOTA FISCAL (NF)</th>
+                    <th className="px-4 py-3.5 w-1/3">PRODUTO VINCULADO NO SISTEMA</th>
+                    <th className="px-4 py-3.5 w-44">EMBALAGEM / FATOR</th>
+                    <th className="px-4 py-3.5 w-44 text-right">ENTRA NO ESTOQUE</th>
+                    <th className="px-4 py-3.5 w-36 text-center">STATUS / AUDITORIA</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {reconcileItems.map((item, index) => {
+                    const selectedProduct = products.find(p => p.id === item.product_id);
+                    const currentStock = selectedProduct ? (parseFloat(selectedProduct.stock) || 0) : 0;
+                    const addedStock = parseFloat(item.reconciled_quantity) || 0;
+                    const expectedStock = currentStock + addedStock;
+                    const unitCostWithFreight = item.reconciled_unit_cost || 0;
+
+                    const hasPhysical = item.physical_count !== '' && item.physical_count !== undefined && item.physical_count !== null;
+                    const physicalCount = hasPhysical ? (parseFloat(item.physical_count) || 0) : expectedStock;
+                    const diff = physicalCount - expectedStock;
+                    const financialLoss = Math.abs(diff) * unitCostWithFreight;
+
+                    const searchTerm = searchTerms[index] !== undefined ? searchTerms[index] : (item.clean_name || item.raw_name);
+                    const filteredProducts = products.filter(p =>
+                      p.name.toLowerCase().includes((searchTerm || '').toLowerCase())
+                    );
+
+                    const isDivergent = hasPhysical && Math.abs(diff) > 0.0001;
+                    const isMissing = diff < -0.0001;
+                    const isSurplus = diff > 0.0001;
+
+                    const isSearching = !selectedProduct || activeReconcileSearchIndex === index;
+                    const isExpandedPhysical = expandedPhysicalIndex === index;
+
+                    return (
+                      <React.Fragment key={item.id || index}>
+                        <tr className={`hover:bg-slate-900/40 transition-colors ${!selectedProduct ? 'bg-amber-950/10' : ''}`}>
+                          {/* 1. ITEM NA NOTA */}
+                          <td className="px-4 py-3.5 align-top">
+                            <p className="font-bold text-white text-sm">{item.clean_name || item.raw_name}</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {item.raw_format && (
+                                <span className="bg-blue-950/80 text-blue-300 border border-blue-500/30 text-[10px] px-2 py-0.5 rounded font-bold">
+                                  📦 {item.raw_format}
+                                </span>
+                              )}
+                              {item.raw_size && (
+                                <span className="bg-slate-800 text-slate-300 border border-slate-700 text-[10px] px-2 py-0.5 rounded font-mono font-bold">
+                                  📏 {item.raw_size} {item.raw_unit || 'un'}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1.5 font-mono">
+                              Comprado: <strong className="text-emerald-400 font-bold">{item.raw_quantity} {item.raw_format || 'un'}</strong> a R$ {parseFloat(item.raw_unit_price || 0).toFixed(2)}
+                            </p>
+                            <p className="text-[11px] text-slate-500 font-mono">
+                              Subtotal NF: R$ {((item.raw_quantity || 0) * (item.raw_unit_price || 0)).toFixed(2)}
+                            </p>
+                          </td>
+
+                          {/* 2. PRODUTO VINCULADO NO SISTEMA (BUSCA ABERTA OU VÍNCULO) */}
+                          <td className="px-4 py-3.5 align-top">
+                            {!isSearching ? (
+                              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-emerald-400 font-black">✓</span>
+                                      <span className="text-white font-bold text-sm">{selectedProduct.name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400 flex-wrap">
+                                      <span>Estoque atual: <strong className="text-slate-200">{currentStock} {selectedProduct.purchase_unit || 'un'}</strong></span>
+                                      <span>•</span>
+                                      <span>Preço anterior: <strong className="text-slate-200 font-mono">R$ {(selectedProduct.cost_price || 0).toFixed(2)}</strong></span>
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-col gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveReconcileSearchIndex(index);
+                                        setSearchTerms(prev => ({ ...prev, [index]: item.clean_name || item.raw_name }));
+                                      }}
+                                      className="bg-slate-800 hover:bg-slate-700 text-blue-400 hover:text-blue-300 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border border-slate-700"
+                                      title="Clique para trocar o produto do sistema"
+                                    >
+                                      🔍 Trocar
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              /* BUSCA ABERTA E ESPAÇOSA - FIM DO "CAMPO FECHADO" */
+                              <div className="bg-slate-900 border-2 border-blue-500/60 rounded-xl p-3 space-y-2 shadow-xl">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-xs font-bold text-blue-400">
+                                    Pesquisar produto interno para vincular:
+                                  </label>
+                                  {selectedProduct && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveReconcileSearchIndex(null)}
+                                      className="text-xs text-slate-400 hover:text-white"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="relative">
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    placeholder="Digite para buscar produtos no sistema..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerms(prev => ({ ...prev, [index]: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-blue-500/80 rounded-lg pl-8 pr-3 py-2 text-xs text-white font-medium outline-none focus:ring-2 focus:ring-blue-500/30"
+                                  />
+                                  <span className="absolute left-2.5 top-2.5 text-slate-400 text-xs">🔍</span>
+                                </div>
+
+                                {/* LISTA ABERTA DE SUGESTÕES */}
+                                <div className="max-h-48 overflow-y-auto space-y-1 pr-1 border border-slate-800 rounded-lg bg-slate-950/80 divide-y divide-slate-800/40">
+                                  {filteredProducts.slice(0, 8).map((prod) => (
+                                    <div
+                                      key={prod.id}
+                                      onClick={() => {
+                                        const currentMult = item.pack_multiplier || 1;
+                                        const newQty = (parseFloat(item.raw_quantity) || 0) * currentMult;
+                                        const totalItemsValue = reconcileItems.reduce((acc, i) => acc + ((parseFloat(i.raw_quantity) || 0) * (parseFloat(i.raw_unit_price) || 0)), 0);
+                                        const freightAmount = parseFloat(editingOrder?.freight_amount) || 0;
+                                        const itemRawValue = (parseFloat(item.raw_quantity) || 0) * (parseFloat(item.raw_unit_price) || 0);
+                                        const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
+                                        const freightShare = proportion * freightAmount;
+                                        const totalItemCost = itemRawValue + freightShare;
+                                        const newCost = newQty > 0 ? (totalItemCost / newQty) : (parseFloat(item.raw_unit_price) || 0);
+
+                                        const newItems = [...reconcileItems];
+                                        newItems[index] = {
+                                          ...newItems[index],
+                                          product_id: prod.id,
+                                          reconciled_quantity: newQty,
+                                          reconciled_unit_cost: newCost,
+                                          bottle_volume_ml: prod.bottle_volume_ml || 0
+                                        };
+                                        setReconcileItems(newItems);
+                                        setActiveReconcileSearchIndex(null);
+                                      }}
+                                      className="p-2 hover:bg-blue-600/20 cursor-pointer flex justify-between items-center transition-colors group"
+                                    >
+                                      <div>
+                                        <p className="text-xs font-bold text-white group-hover:text-blue-300">{prod.name}</p>
+                                        <p className="text-[10px] text-slate-400">
+                                          {prod.category_name || 'Geral'} | Formato: {prod.purchase_unit || 'un'} | Estoque: {prod.stock || 0}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        className="bg-blue-600/30 group-hover:bg-blue-600 text-blue-300 group-hover:text-white text-[11px] font-bold px-2.5 py-1 rounded transition-colors"
+                                      >
+                                        + Vincular
+                                      </button>
+                                    </div>
+                                  ))}
+                                  {filteredProducts.length === 0 && (
+                                    <div className="text-center py-3 text-xs text-slate-400 italic">
+                                      Nenhum produto cadastrado com "{searchTerm}".
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="pt-1 flex justify-between items-center text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setProductCreationIndex(index);
+                                      setIsProductModalOpen(true);
+                                    }}
+                                    className="text-blue-400 hover:underline font-bold"
+                                  >
+                                    + Cadastrar Novo Produto Simples
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 3. EMBALAGEM / MULTIPLICADOR */}
+                          <td className="px-4 py-3.5 align-top">
+                            <div className="space-y-1.5">
+                              <select
+                                value={[1, 6, 12, 24].includes(item.pack_multiplier || 1) ? (item.pack_multiplier || 1) : 'custom'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === 'custom') {
+                                    updateReconcileItem(index, { pack_multiplier: item.pack_multiplier || 1 });
+                                  } else {
+                                    updateReconcileItem(index, { pack_multiplier: parseFloat(val) || 1 });
+                                  }
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold outline-none"
+                              >
+                                <option value="1">1x Avulso (1 NF = 1 Estoque)</option>
+                                <option value="6">Caixa c/ 6 unidades</option>
+                                <option value="12">Caixa c/ 12 unidades</option>
+                                <option value="24">Caixa c/ 24 unidades</option>
+                                <option value="custom">Outro multiplicador</option>
+                              </select>
+                              {![1, 6, 12, 24].includes(item.pack_multiplier || 1) && (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="any"
+                                    placeholder="Ex: 8"
+                                    value={item.pack_multiplier || ''}
+                                    onChange={(e) => updateReconcileItem(index, { pack_multiplier: parseFloat(e.target.value) || 1 })}
+                                    className="w-16 bg-slate-900 border border-blue-500 rounded-lg px-2 py-1 text-xs text-center text-white font-bold"
+                                  />
+                                  <span className="text-[10px] text-slate-400 font-bold">un/cx</span>
+                                </div>
+                              )}
+                              <p className="text-[11px] text-slate-400">
+                                Multiplica {item.raw_quantity} × {item.pack_multiplier || 1}
+                              </p>
+                            </div>
+                          </td>
+
+                          {/* 4. ENTRA NO ESTOQUE */}
+                          <td className="px-4 py-3.5 align-top text-right">
+                            <div className="text-base font-black text-emerald-400 font-mono">
+                              +{item.reconciled_quantity} <span className="text-xs text-slate-300 font-normal">{selectedProduct?.purchase_unit || 'un'}</span>
+                            </div>
+                            <div className="text-xs text-slate-300 font-mono font-bold mt-1">
+                              R$ {(item.reconciled_unit_cost || 0).toFixed(2)} <span className="text-[10px] text-slate-400">/ un</span>
+                            </div>
+                            {editingOrder.freight_amount > 0 && (
+                              <p className="text-[10px] text-orange-400 font-medium">c/ frete rateado</p>
+                            )}
+                          </td>
+
+                          {/* 5. AÇÕES / STATUS / AUDITORIA */}
+                          <td className="px-4 py-3.5 align-top text-center">
+                            <div className="space-y-1.5 flex flex-col items-center">
+                              {selectedProduct ? (
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
+                                  ✓ Pronto
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase">
+                                  ⚠️ Pendente
+                                </span>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setExpandedPhysicalIndex(isExpandedPhysical ? null : index)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 border ${
+                                  hasPhysical
+                                    ? isDivergent
+                                      ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                    : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border-slate-700'
+                                }`}
+                                title="Conferência física / Balanço cego do estoque"
+                              >
+                                {hasPhysical ? (
+                                  isDivergent ? `🚨 Dif: ${diff > 0 ? `+${diff}` : diff}` : `✓ ${physicalCount} un`
+                                ) : (
+                                  '🔍 Balanço Cego'
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* LINHA EXPANSÍVEL: BALANÇO CEGO / AUDITORIA */}
+                        {isExpandedPhysical && selectedProduct && (
+                          <tr className="bg-slate-900/90 border-b border-slate-800">
+                            <td colSpan={5} className="px-6 py-4">
+                              <div className="bg-slate-950 p-4 rounded-xl border border-amber-500/40 space-y-3">
+                                <div className="flex justify-between items-center">
+                                  <h4 className="text-xs font-bold uppercase text-amber-400 tracking-wider flex items-center gap-2">
+                                    <span>🔍 Auditoria de Prateleira (Balanço Cego) - {selectedProduct.name}</span>
+                                  </h4>
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedPhysicalIndex(null)}
+                                    className="text-xs text-slate-400 hover:text-white"
+                                  >
+                                    Fechar
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                                  <div>
+                                    <label className="block text-xs text-slate-300 mb-1 font-semibold">
+                                      Quantas unidades físicas existem na prateleira somando tudo (antigo + novo)?
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="1"
+                                      placeholder={`Esperado: ${expectedStock} un`}
+                                      value={item.physical_count ?? ''}
+                                      onChange={(e) => {
+                                        const newItems = [...reconcileItems];
+                                        newItems[index].physical_count = e.target.value;
+                                        setReconcileItems(newItems);
+                                      }}
+                                      className="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-lg p-2 text-white font-bold text-sm text-center"
+                                    />
+                                    <p className="text-[10px] text-slate-500 mt-1">
+                                      Estoque esperado calculado: {expectedStock} un
+                                    </p>
+                                  </div>
+
+                                  <div className="md:col-span-2">
+                                    {!hasPhysical ? (
+                                      <p className="text-xs text-slate-400">
+                                        Deixe em branco para aceitar a soma automática sem registrar divergência.
+                                      </p>
+                                    ) : !isDivergent ? (
+                                      <p className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                                        ✅ Contagem bateu 100%! Nenhuma divergência.
+                                      </p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        <div className={`text-xs font-bold ${isMissing ? 'text-red-400' : 'text-amber-400'}`}>
+                                          {isMissing
+                                            ? `🚨 Divergência: Faltam ${Math.abs(diff)} un | Prejuízo: R$ ${financialLoss.toFixed(2)}`
+                                            : `⚠️ Sobra: +${diff} unidades a mais que o esperado`}
+                                        </div>
+                                        <div>
+                                          <label className="block text-[11px] text-slate-400 mb-1">
+                                            Justificativa / Motivo:
+                                          </label>
+                                          <select
+                                            value={item.reason || (isMissing ? 'Não Identificado (Sumiço)' : 'Sobra na Contagem')}
+                                            onChange={(e) => {
+                                              const newItems = [...reconcileItems];
+                                              newItems[index].reason = e.target.value;
+                                              setReconcileItems(newItems);
+                                            }}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-xs text-white"
+                                          >
+                                            <option value="Não Identificado (Sumiço)">Não Identificado (Sumiço)</option>
+                                            <option value="Quebra Acidental">Quebra Acidental</option>
+                                            <option value="Vencimento">Vencimento</option>
+                                            <option value="Contagem de Rotina">Contagem de Rotina</option>
+                                            <option value="Sobra na Contagem">Sobra na Contagem</option>
+                                            <option value="Entrada não Registrada Anteriormente">Entrada não Registrada Anteriormente</option>
+                                          </select>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+        <div className="space-y-6">
+          {reconcileItems.map((item, index) => {
+            const selectedProduct = products.find(p => p.id === item.product_id);
+            const currentStock = selectedProduct ? (parseFloat(selectedProduct.stock) || 0) : 0;
+            const addedStock = parseFloat(item.reconciled_quantity) || 0;
+            const expectedStock = currentStock + addedStock;
+            const unitCostWithFreight = item.reconciled_unit_cost || 0;
+
+            const hasPhysical = item.physical_count !== '' && item.physical_count !== undefined && item.physical_count !== null;
+            const physicalCount = hasPhysical ? (parseFloat(item.physical_count) || 0) : expectedStock;
+            const diff = physicalCount - expectedStock;
+            const financialLoss = Math.abs(diff) * unitCostWithFreight;
+
+            const searchTerm = searchTerms[index] !== undefined ? searchTerms[index] : item.raw_name;
+            const filteredProducts = products.filter(p =>
+              p.name.toLowerCase().includes((searchTerm || '').toLowerCase())
+            );
+
+            const isDivergent = hasPhysical && Math.abs(diff) > 0.0001;
+            const isMissing = diff < -0.0001;
+            const isSurplus = diff > 0.0001;
+
+            return (
+              <div
+                key={item.id || index}
+                className={`bg-slate-900 border rounded-2xl p-6 transition-all ${
+                  isMissing
+                    ? 'border-red-500/50 bg-red-950/10'
+                    : isSurplus
+                    ? 'border-amber-500/50 bg-amber-950/10'
+                    : 'border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* VEIO NA NOTA FISCAL (COLUNA ESQUERDA) */}
+                  <div className="lg:col-span-4 lg:border-r border-slate-800 lg:pr-6 space-y-4">
+                    <span className="bg-blue-900/40 text-blue-400 text-[10px] font-black uppercase px-2.5 py-1 rounded-md inline-block">
+                      📄 Veio na Nota Fiscal
+                    </span>
+
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Nome no Fornecedor:</p>
+                      <p className="text-white text-lg font-bold mt-0.5">{item.clean_name || item.raw_name}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {item.raw_format && (
+                          <span className="bg-blue-950/80 text-blue-300 border border-blue-500/30 text-xs px-2.5 py-1 rounded-lg font-bold flex items-center gap-1">
+                            📦 {item.raw_format}
+                          </span>
+                        )}
+                        {item.raw_size && (
+                          <span className="bg-slate-800 text-slate-200 border border-slate-700 text-xs px-2.5 py-1 rounded-lg font-mono font-bold flex items-center gap-1">
+                            📏 {item.raw_size} {item.raw_unit || 'un'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                      <div>
+                        <p className="text-[10px] uppercase text-slate-500 font-bold">Qtd Comprada</p>
+                        <p className="text-xl font-black text-emerald-400">{item.raw_quantity} {item.raw_format || 'un'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase text-slate-500 font-bold">Custo Unit. NF</p>
+                        <p className="text-lg font-bold text-slate-300">R$ {parseFloat(item.raw_unit_price || 0).toFixed(2)}</p>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-slate-400 flex justify-between items-center px-1">
+                      <span>Total Cru do Item:</span>
+                      <span className="font-mono font-bold text-slate-200">
+                        R$ {((item.raw_quantity || 0) * (item.raw_unit_price || 0)).toFixed(2)}
+                      </span>
+                    </div>
+
+                    {editingOrder.freight_amount > 0 && (
+                      <div className="text-xs text-orange-400 flex justify-between items-center px-1">
+                        <span>Custo Real com Frete:</span>
+                        <span className="font-mono font-bold">
+                          R$ {unitCostWithFreight.toFixed(2)} / un
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* VÍNCULO NO SISTEMA E BALANÇO CEGO (COLUNA DIREITA) */}
+                  <div className="lg:col-span-8 space-y-5">
+                    <div className="flex justify-between items-center">
+                      <span className="bg-purple-900/40 text-purple-400 text-[10px] font-black uppercase px-2.5 py-1 rounded-md inline-block">
+                        🔗 Vínculo no seu Sistema
+                      </span>
+                      {selectedProduct && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newItems = [...reconcileItems];
+                            newItems[index].product_id = '';
+                            setReconcileItems(newItems);
+                            setActiveDropdownIndex(index);
+                          }}
+                          className="text-xs text-slate-400 hover:text-blue-400 transition-colors"
+                        >
+                          🔄 Trocar Produto Vinculado
+                        </button>
+                      )}
+                    </div>
+
+                    {/* SE NÃO TEM PRODUTO SELECIONADO: CAMPO DE BUSCA AUTOCOMPLETE */}
+                    {!selectedProduct ? (
+                      <div className="relative">
+                        <label className="block text-xs text-slate-400 mb-1 font-medium">
+                          Buscar Produto Interno Correspondente:
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Digite o nome do produto no sistema para buscar..."
+                            value={searchTerm}
+                            onFocus={() => setActiveDropdownIndex(index)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSearchTerms(prev => ({ ...prev, [index]: val }));
+                              setActiveDropdownIndex(index);
+                            }}
+                            className="w-full bg-slate-950 border border-blue-500/70 focus:border-blue-400 rounded-xl pl-4 pr-10 py-3 text-sm text-white font-medium outline-none ring-2 ring-blue-500/20"
+                          />
+                          <span className="absolute right-3.5 top-3.5 text-slate-400">🔍</span>
+                        </div>
+
+                        {/* AUTOCOMPLETE DROPDOWN */}
+                        {activeDropdownIndex === index && (
+                          <div className="absolute left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-30 max-h-60 overflow-y-auto">
+                            {filteredProducts.length > 0 ? (
+                              filteredProducts.slice(0, 10).map((prod) => {
+                                const prodVol = getProductVolume(prod);
+                                const prodType = getProductMeasurementType(prod);
+                                const volLabel = prodType === 'liquid' && prodVol > 1
+                                  ? ` (${prodVol >= 1000 && prodVol % 1000 === 0 ? prodVol / 1000 + 'L' : prodVol + 'ml'})`
+                                  : prodType === 'solid' && prodVol > 1
+                                  ? ` (${prodVol >= 1000 && prodVol % 1000 === 0 ? prodVol / 1000 + 'kg' : prodVol + 'g'})`
+                                  : '';
+
+                                return (
+                                <div
+                                  key={prod.id}
+                                  onClick={() => {
+                                    const currentMult = item.pack_multiplier || 1;
+                                    const newQty = (parseFloat(item.raw_quantity) || 0) * currentMult;
+
+                                    const totalItemsValue = reconcileItems.reduce((acc, i) => acc + ((parseFloat(i.raw_quantity) || 0) * (parseFloat(i.raw_unit_price) || 0)), 0);
+                                    const freightAmount = parseFloat(editingOrder?.freight_amount) || 0;
+                                    const itemRawValue = (parseFloat(item.raw_quantity) || 0) * (parseFloat(item.raw_unit_price) || 0);
+                                    const proportion = totalItemsValue > 0 ? (itemRawValue / totalItemsValue) : 0;
+                                    const freightShare = proportion * freightAmount;
+                                    const totalItemCost = itemRawValue + freightShare;
+                                    const newCost = newQty > 0 ? (totalItemCost / newQty) : (parseFloat(item.raw_unit_price) || 0);
+
+                                    const newItems = [...reconcileItems];
+                                    newItems[index] = {
+                                      ...newItems[index],
+                                      product_id: prod.id,
+                                      reconciled_quantity: newQty,
+                                      reconciled_unit_cost: newCost,
+                                      bottle_volume_ml: prodVol || prod.bottle_volume_ml || 0
+                                    };
+                                    setReconcileItems(newItems);
+                                    setActiveDropdownIndex(null);
+                                  }}
+                                  className="p-3 border-b border-slate-800 hover:bg-slate-800/80 cursor-pointer flex justify-between items-center transition-colors"
+                                >
+                                  <div>
+                                    <p className="text-white font-bold text-sm">{prod.name}</p>
+                                    <p className="text-xs text-slate-400">
+                                      {prod.category_name || 'Geral'} | Formato: {prod.purchase_unit || 'un'}{volLabel} | Estoque: {prod.stock || 0}
+                                    </p>
+                                  </div>
+                                  <div className="text-right flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setRenameModal({
+                                          isOpen: true,
+                                          productId: prod.id,
+                                          currentName: prod.name
+                                        });
+                                        setRenameInput(prod.name);
+                                      }}
+                                      className="p-1 hover:bg-amber-400/20 text-amber-400 rounded transition-colors text-xs border border-amber-500/20"
+                                      title="Corrigir nome deste produto no banco de dados"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <span className="text-xs bg-slate-800 text-emerald-400 px-2 py-1 rounded-md font-mono font-bold">
+                                      Estoque: {prod.stock || 0}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })
+                            ) : (
+                              <div className="p-4 text-center text-slate-400 text-sm">
+                                Nenhum produto encontrado com "{searchTerm}".
+                              </div>
+                            )}
+
+                            <div className="p-2 bg-slate-950/80 border-t border-slate-800 text-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setProductCreationIndex(index);
+                                  setIsProductModalOpen(true);
+                                  setActiveDropdownIndex(null);
+                                }}
+                                className="text-xs text-blue-400 hover:text-blue-300 font-bold py-1 px-3 rounded-lg hover:bg-blue-500/10 transition-colors"
+                              >
+                                + Cadastrar "{searchTerm || item.raw_name}" como Novo Produto
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* PRODUTO VINCULADO COM LÁPIS DE EDIÇÃO E HISTÓRICO DE COMPRAS */
+                      (() => {
+                        const custoAntigo = parseFloat(selectedProduct?.cost_price) || 0;
+                        const custoNovo = (item.reconciled_unit_cost && item.reconciled_unit_cost > 0)
+                          ? item.reconciled_unit_cost
+                          : (parseFloat(item.raw_unit_price) || 0);
+                        const temComparativo = !!selectedProduct && custoAntigo > 0;
+                        const diffCusto = custoNovo - custoAntigo;
+                        const pctCusto = custoAntigo > 0 ? ((diffCusto / custoAntigo) * 100) : 0;
+                        const isBoaCompra = diffCusto < -0.005;
+                        const isMaCompra = diffCusto > 0.005;
+
+                        return (
+                          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                              <div className="flex-1 min-w-[220px]">
+                                <p className="text-[10px] uppercase text-slate-500 font-bold">
+                                  Nome oficial salvo no seu banco de dados:
+                                </p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-white text-base font-bold">{selectedProduct.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRenameModal({
+                                        isOpen: true,
+                                        productId: selectedProduct.id,
+                                        currentName: selectedProduct.name
+                                      });
+                                      setRenameInput(selectedProduct.name);
+                                    }}
+                                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                                    title="Clique para corrigir ou renomear o nome oficial no banco de dados"
+                                  >
+                                    ✏️ Corrigir Nome
+                                  </button>
+                                </div>
+                                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                   <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                                     Formato: {selectedProduct.purchase_unit || 'Unidade'}
+                                   </span>
+                                   {getProductVolume(selectedProduct) > 1 && (
+                                     <span className="text-xs text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                                       {getProductMeasurementType(selectedProduct) === 'liquid'
+                                         ? (getProductVolume(selectedProduct) >= 1000 && getProductVolume(selectedProduct) % 1000 === 0
+                                             ? `${getProductVolume(selectedProduct) / 1000}L`
+                                             : `${getProductVolume(selectedProduct)}ml`)
+                                         : (getProductVolume(selectedProduct) >= 1000 && getProductVolume(selectedProduct) % 1000 === 0
+                                             ? `${getProductVolume(selectedProduct) / 1000}kg`
+                                             : `${getProductVolume(selectedProduct)}g`)}
+                                     </span>
+                                   )}
+                                 </div>
+                              </div>
+
+                              <div className="flex items-center gap-4 flex-wrap">
+                                <div>
+                                  <p className="text-[10px] uppercase text-slate-500 font-bold">Estoque Atual</p>
+                                  <p className="text-slate-300 font-bold text-base">{currentStock} {selectedProduct.purchase_unit || 'un'}</p>
+                                </div>
+
+                                {/* PREÇO ANTERIOR - CLICÁVEL PARA HISTÓRICO DE COMPRAS */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPurchaseHistory(selectedProduct)}
+                                  className="text-right bg-slate-900 hover:bg-slate-850 border border-slate-700 hover:border-blue-500 p-2.5 rounded-xl transition-all cursor-pointer group shadow-md"
+                                  title="Clique para ver onde foi comprado antes e conferir o histórico completo"
+                                >
+                                  <div className="flex items-center gap-1 justify-end">
+                                    <span className="text-[10px] uppercase text-slate-400 group-hover:text-blue-400 font-bold">
+                                      Preço Anterior
+                                    </span>
+                                    <span className="text-xs group-hover:scale-110 transition-transform">🔍</span>
+                                  </div>
+                                  <p className="text-slate-200 font-black text-base font-mono group-hover:text-blue-400">
+                                    R$ {custoAntigo.toFixed(2)}
+                                  </p>
+                                  <p className="text-[10px] text-blue-400 font-medium group-hover:underline mt-0.5">
+                                    Ver compras anteriores 📜
+                                  </p>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* COMPARATIVO INTELIGENTE: BOA COMPRA OU MÁ COMPRA */}
+                            {temComparativo && (
+                              <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+                                isBoaCompra
+                                  ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                                  : isMaCompra
+                                  ? 'bg-rose-950/30 border-rose-500/40 text-rose-300'
+                                  : 'bg-slate-900 border-slate-700 text-slate-300'
+                              }`}>
+                                <div className="flex items-center gap-2.5">
+                                  <span className="text-xl">{isBoaCompra ? '🟢' : isMaCompra ? '🔴' : '⚪'}</span>
+                                  <div>
+                                    <p className="font-bold text-sm">
+                                      {isBoaCompra
+                                        ? `BOA COMPRA! Economizou R$ ${Math.abs(diffCusto).toFixed(2)} / un (${Math.abs(pctCusto).toFixed(1)}% mais barato que a compra anterior)`
+                                        : isMaCompra
+                                        ? `ATENÇÃO: COMPRA MAIS CARA! Aumento de R$ ${diffCusto.toFixed(2)} / un (+${pctCusto.toFixed(1)}% acima do preço anterior)`
+                                        : 'Preço idêntico ao custo já cadastrado'}
+                                    </p>
+                                    <p className="text-[11px] opacity-80 mt-0.5">
+                                      Preço anterior no sistema: <strong>R$ {custoAntigo.toFixed(2)}</strong> ➔ Preço nesta nota: <strong>R$ {custoNovo.toFixed(2)}</strong>
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPurchaseHistory(selectedProduct)}
+                                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold shrink-0 transition-colors flex items-center gap-1.5 text-xs shadow-sm"
+                                >
+                                  📜 Onde comprei antes?
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
+
+                    {/* CAMPOS INTELIGENTES DE EMBALAGEM, MULTIPLICADOR E ENTRADA DE ESTOQUE */}
+                    {selectedProduct && (
+                      <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-4">
+                        {/* SELETOR DE MULTIPLICADOR / FORMATO DA COMPRA */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+                          <div>
+                            <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                              📦 Embalagem na Nota Fiscal:
+                            </span>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Como o fornecedor faturou este item?
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={[1, 6, 12, 24].includes(item.pack_multiplier || 1) ? (item.pack_multiplier || 1) : 'custom'}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === 'custom') {
+                                  updateReconcileItem(index, { pack_multiplier: item.pack_multiplier || 1 });
+                                } else {
+                                  updateReconcileItem(index, { pack_multiplier: parseFloat(val) || 1 });
+                                }
+                              }}
+                              className="bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-1.5 text-white font-bold text-xs outline-none"
+                            >
+                              <option value="1">Avulso / 1x (1 na NF = 1 no estoque)</option>
+                              <option value="6">Caixa / Fardo c/ 6 unidades</option>
+                              <option value="12">Caixa / Fardo c/ 12 unidades</option>
+                              <option value="24">Caixa / Fardo c/ 24 unidades</option>
+                              <option value="custom">Outro (Digitar multiplicador)</option>
+                            </select>
+
+                            {(![1, 6, 12, 24].includes(item.pack_multiplier || 1)) && (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="any"
+                                  placeholder="Ex: 8"
+                                  value={item.pack_multiplier || ''}
+                                  onChange={(e) => updateReconcileItem(index, { pack_multiplier: parseFloat(e.target.value) || 1 })}
+                                  className="w-16 bg-slate-950 border border-blue-500 rounded-lg px-2 py-1.5 text-center text-white font-bold text-xs outline-none"
+                                />
+                                <span className="text-xs text-slate-400 font-bold">un/cx</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* QUANTIDADE E CUSTO RESULTANTE */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs text-slate-300 mb-1 font-semibold">
+                              Qtd a Entrar no Estoque ({selectedProduct.purchase_unit || 'unidades'}):
+                            </label>
+                            <input
+                              type="number"
+                              step="any"
+                              value={item.reconciled_quantity}
+                              onChange={(e) => updateReconcileItem(index, { reconciled_quantity: parseFloat(e.target.value) || 0 })}
+                              className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg p-2.5 text-white font-black text-sm outline-none"
+                            />
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              {item.raw_quantity} na NF × {item.pack_multiplier || 1} = <strong className="text-emerald-400">{item.reconciled_quantity} {selectedProduct.purchase_unit || 'un'}</strong>
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs text-slate-300 mb-1 font-semibold">
+                              Custo Unitário Final (por {selectedProduct.purchase_unit || 'un'}):
+                            </label>
+                            <div className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-emerald-400 font-black font-mono text-sm flex items-center justify-between">
+                              <span>R$ {(item.reconciled_unit_cost || 0).toFixed(2)}</span>
+                              <span className="text-[10px] text-slate-400 font-sans font-medium">
+                                Total c/ Frete: R$ {(((parseFloat(item.raw_quantity) || 0) * (parseFloat(item.raw_unit_price) || 0)) + ((parseFloat(editingOrder?.freight_amount) || 0) * (((parseFloat(item.raw_quantity) || 0) * (parseFloat(item.raw_unit_price) || 0)) / (reconcileItems.reduce((acc, i) => acc + ((parseFloat(i.raw_quantity) || 0) * (parseFloat(i.raw_unit_price) || 0)), 0) || 1)))).toFixed(2)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              Preço de custo unitário que atualizará o estoque
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* TAMANHO / VOLUME DA UNIDADE (ml / g) */}
+                        {(getProductMeasurementType(selectedProduct) === 'liquid' ||
+                          selectedProduct.purchase_unit === 'Garrafa' ||
+                          selectedProduct.purchase_unit === 'Lata' ||
+                          selectedProduct.bottle_volume_ml > 0 ||
+                          getProductMeasurementType(selectedProduct) === 'solid') && (
+                          <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+                            <span className="text-xs text-amber-400 font-semibold flex items-center gap-1.5">
+                              {getProductMeasurementType(selectedProduct) === 'solid'
+                                ? '⚖️ Peso por Embalagem / Pacote:'
+                                : '🍾 Volume por Garrafa / Lata / Unidade:'}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                step="1"
+                                placeholder="Ex: 350, 750, 1000"
+                                value={item.bottle_volume_ml || selectedProduct.bottle_volume_ml || ''}
+                                onChange={(e) => {
+                                  const newItems = [...reconcileItems];
+                                  newItems[index].bottle_volume_ml = parseFloat(e.target.value) || 0;
+                                  setReconcileItems(newItems);
+                                }}
+                                className="w-28 bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-1.5 text-white font-bold text-xs text-right outline-none focus:border-amber-400"
+                              />
+                              <span className="text-xs text-slate-300 font-bold">
+                                {getProductMeasurementType(selectedProduct) === 'solid' ? 'g' : 'ml'}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* CONFERÊNCIA FÍSICA (BALANÇO CEGO) */}
+                    {selectedProduct && (
+                      <div className="pt-4 border-t border-slate-800">
+                        <label className="block text-xs font-black text-amber-400 uppercase tracking-wider mb-2">
+                          🔍 Conferência Física (Balanço Cego)
+                        </label>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                          <div className="md:col-span-5">
+                            <p className="text-[11px] text-slate-400 mb-1.5 font-medium">
+                              Quantas unidades tem na prateleira somando tudo (antigo + novo)?
+                            </p>
+                            <input
+                              type="number"
+                              step="1"
+                              placeholder="Digite a contagem real..."
+                              value={item.physical_count ?? ''}
+                              onChange={(e) => {
+                                const newItems = [...reconcileItems];
+                                newItems[index].physical_count = e.target.value;
+                                setReconcileItems(newItems);
+                              }}
+                              className={`w-full bg-slate-950 border rounded-xl px-4 py-3 text-white font-black text-center text-lg outline-none transition-all ${
+                                !hasPhysical
+                                  ? 'border-slate-700 focus:border-amber-500 ring-2 ring-transparent focus:ring-amber-500/20'
+                                  : isMissing
+                                  ? 'border-red-500 ring-2 ring-red-500/30'
+                                  : isSurplus
+                                  ? 'border-amber-500 ring-2 ring-amber-500/30'
+                                  : 'border-emerald-500 ring-2 ring-emerald-500/30'
+                              }`}
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1 text-center">
+                              Deixe em branco para aceitar a soma automática ({expectedStock} un)
+                            </p>
+                          </div>
+
+                          <div className="md:col-span-7">
+                            {!hasPhysical ? (
+                              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs text-slate-400 flex items-center gap-3">
+                                <span className="text-xl">ℹ️</span>
+                                <div>
+                                  <p className="font-semibold text-slate-300">Contagem Física Opcional</p>
+                                  <p className="text-slate-500 text-[11px] mt-0.5">
+                                    Ao digitar a contagem que você vê na prateleira, o sistema audita faltas ou sobras e calcula perdas financeiras.
+                                  </p>
+                                </div>
+                              </div>
+                            ) : !isDivergent ? (
+                              <div className="bg-emerald-900/20 border border-emerald-500/40 rounded-xl p-3.5 flex items-center gap-3">
+                                <span className="text-2xl">✅</span>
+                                <div>
+                                  <p className="text-sm font-bold text-emerald-400">Estoque Bateu perfeitamente!</p>
+                                  <p className="text-xs text-emerald-300/80 mt-0.5">
+                                    Antigo ({currentStock}) + Comprado ({addedStock}) = Contado ({physicalCount})
+                                  </p>
+                                </div>
+                              </div>
+                            ) : isMissing ? (
+                              <div className="bg-red-950/40 border border-red-500/40 rounded-xl p-3.5 space-y-3">
+                                <div className="flex items-center gap-3">
+                                  <span className="text-2xl">🚨</span>
+                                  <div>
+                                    <p className="text-sm font-bold text-red-400">Divergência Encontrada!</p>
+                                    <p className="text-xs text-red-300 font-semibold mt-0.5">
+                                      Faltam {Math.abs(diff)} unidade(s) | Prejuízo Financeiro: R$ {financialLoss.toFixed(2)}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="pt-2 border-t border-red-900/40">
+                                  <label className="block text-[11px] font-bold text-red-300 mb-1">
+                                    Justificativa Obrigatória da Perda:
+                                  </label>
+                                  <select
+                                    value={item.reason || 'Não Identificado (Sumiço)'}
+                                    onChange={(e) => {
+                                      const newItems = [...reconcileItems];
+                                      newItems[index].reason = e.target.value;
+                                      setReconcileItems(newItems);
+                                    }}
+                                    className="w-full bg-slate-900 border border-red-500/50 rounded-lg px-3 py-2 text-xs text-white outline-none"
+                                  >
+                                    <option value="Não Identificado (Sumiço)">Não Identificado (Sumiço)</option>
+                                    <option value="Quebra Acidental">Quebra Acidental</option>
+                                    <option value="Vencimento">Vencimento</option>
+                                    <option value="Contagem de Rotina">Contagem de Rotina</option>
+                                  </select>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-3.5 space-y-3">
+                                <div className="flex items-center gap-3">
+                                  <span className="text-2xl">⚠️</span>
+                                  <div>
+                                    <p className="text-sm font-bold text-amber-400">Sobra no Estoque!</p>
+                                    <p className="text-xs text-amber-300 font-semibold mt-0.5">
+                                      Sobrando +{diff} unidade(s) a mais que o esperado ({expectedStock}).
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="pt-2 border-t border-amber-900/40">
+                                  <label className="block text-[11px] font-bold text-amber-300 mb-1">
+                                    Justificativa da Sobra:
+                                  </label>
+                                  <select
+                                    value={item.reason || 'Sobra na Contagem'}
+                                    onChange={(e) => {
+                                      const newItems = [...reconcileItems];
+                                      newItems[index].reason = e.target.value;
+                                      setReconcileItems(newItems);
+                                    }}
+                                    className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-3 py-2 text-xs text-white outline-none"
+                                  >
+                                    <option value="Sobra na Contagem">Sobra na Contagem</option>
+                                    <option value="Contagem de Rotina">Contagem de Rotina</option>
+                                    <option value="Entrada não Registrada Anteriormente">Entrada não Registrada Anteriormente</option>
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        )}
+
+        <div className="flex justify-end pt-4">
+          <button
+            onClick={handleReconcile}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3.5 rounded-xl font-bold flex items-center gap-2 shadow-xl shadow-emerald-900/30 text-base"
+          >
+            <CheckCircle size={22} /> Salvar e Efetivar Estoque
+          </button>
+        </div>
+
+        {/* MODAL DE CADASTRO RÁPIDO DE PRODUTO */}
         {isProductModalOpen && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold">Cadastrar Produto Rápido</h3>
+                <h3 className="text-xl font-bold text-white">Cadastrar Produto Rápido</h3>
                 <button
                   onClick={() => { setIsProductModalOpen(false); setProductCreationIndex(null); }}
                   className="text-slate-400 hover:text-white"
@@ -5439,17 +7794,28 @@ function Purchases() {
               </div>
 
               <form onSubmit={handleSaveQuickProduct} className="space-y-4">
-                <p className="text-sm text-slate-400">Este atalho cria um produto <strong>simples</strong> e sem categoria para facilitar a entrada. Você pode editá-lo depois no cadastro completo.</p>
+                <p className="text-xs text-slate-400">Este atalho cria um produto <strong>simples</strong> para vincular à nota fiscal imediatamente.</p>
 
                 <div>
                   <label className="block text-sm text-slate-400 mb-1">Nome do Produto</label>
-                  <input name="name" defaultValue={productCreationIndex !== null && reconcileItems[productCreationIndex] ? reconcileItems[productCreationIndex].raw_name : ''} required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+                  <input
+                    name="name"
+                    defaultValue={
+                      productCreationIndex !== null && searchTerms[productCreationIndex]
+                        ? searchTerms[productCreationIndex]
+                        : productCreationIndex !== null && reconcileItems[productCreationIndex]
+                        ? reconcileItems[productCreationIndex].raw_name
+                        : ''
+                    }
+                    required
+                    className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-white font-medium"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-slate-400 mb-1">Unidade</label>
-                    <select name="unit" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm">
+                    <select name="unit" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm text-white">
                       <option value="un">Unidade (un)</option>
                       <option value="kg">Quilograma (kg)</option>
                       <option value="g">Grama (g)</option>
@@ -5461,7 +7827,7 @@ function Purchases() {
                   </div>
                   <div>
                     <label className="block text-sm text-slate-400 mb-1">Preço de Venda (R$)</label>
-                    <input type="number" step="0.01" name="sell_price" defaultValue="0" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2" />
+                    <input type="number" step="0.01" name="sell_price" defaultValue="0" className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-white" />
                   </div>
                 </div>
 
@@ -5473,6 +7839,371 @@ function Purchases() {
             </div>
           </div>
         )}
+
+        {/* MODAL DE RENOMEAR PRODUTO NO BANCO DE DADOS */}
+        {renameModal.isOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  ✏️ Renomear Produto Oficial
+                </h3>
+                <button
+                  onClick={() => setRenameModal({ isOpen: false, productId: null, currentName: '' })}
+                  className="text-slate-400 hover:text-white"
+                ><XCircle size={22} /></button>
+              </div>
+
+              <form onSubmit={handleRenameProduct} className="space-y-4">
+                <p className="text-xs text-slate-400">
+                  Isso atualizará o nome deste produto diretamente no banco de dados, sem você precisar sair da tela de conciliação.
+                </p>
+
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Nome no Banco de Dados:</label>
+                  <input
+                    type="text"
+                    value={renameInput}
+                    onChange={(e) => setRenameInput(e.target.value)}
+                    required
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white font-bold"
+                  />
+                </div>
+
+                <div className="flex justify-end pt-3 border-t border-slate-800 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRenameModal({ isOpen: false, productId: null, currentName: '' })}
+                    className="px-4 py-2 text-slate-400 hover:text-white text-sm"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2 rounded-lg font-bold text-sm"
+                  >
+                    Salvar no Banco
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE HISTÓRICO DE COMPRAS E MELHOR ALTERNATIVA */}
+        {historyModal.isOpen && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[85vh] flex flex-col">
+              <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-800">
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    📜 Histórico de Compras e Melhor Alternativa
+                  </h3>
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    Produto: <span className="text-white font-bold">{historyModal.product?.name}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => setHistoryModal({ isOpen: false, product: null, loading: false, history: [] })}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <XCircle size={24} />
+                </button>
+              </div>
+
+              {historyModal.loading ? (
+                <div className="py-12 text-center text-slate-400">
+                  <RefreshCw className="animate-spin mx-auto mb-2" size={28} />
+                  Buscando compras anteriores deste produto...
+                </div>
+              ) : (
+                <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+                  {historyModal.history.length > 0 ? (
+                    <>
+                      {/* CARD DE MELHOR ALTERNATIVA / MENOR PREÇO HISTÓRICO */}
+                      {(() => {
+                        const validPrices = historyModal.history.filter(h => parseFloat(h.unit_cost) > 0);
+                        if (validPrices.length === 0) return null;
+                        const bestBuy = validPrices.reduce((min, cur) =>
+                          parseFloat(cur.unit_cost) < parseFloat(min.unit_cost) ? cur : min, validPrices[0]
+                        );
+
+                        return (
+                          <div className="bg-emerald-950/40 border border-emerald-500/40 p-4 rounded-xl flex items-center justify-between gap-3 shadow-lg">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xl">🏆</span>
+                                <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                                  Melhor Alternativa Histórica (Menor Preço Pago)
+                                </p>
+                              </div>
+                              <p className="text-sm text-slate-200 mt-1">
+                                Fornecedor: <strong className="text-white">{bestBuy.supplier_name}</strong> | NF: <strong>{bestBuy.invoice_number || 'S/N'}</strong>
+                              </p>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                Comprado em: {bestBuy.date ? new Date(bestBuy.date).toLocaleDateString('pt-BR') : '-'}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] uppercase text-emerald-400 font-bold">Menor Preço</p>
+                              <p className="text-2xl font-black text-emerald-400 font-mono">
+                                R$ {parseFloat(bestBuy.unit_cost || 0).toFixed(2)}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* TABELA DE COMPRAS ANTERIORES */}
+                      <div className="border border-slate-800 rounded-xl overflow-hidden shadow-md">
+                        <table className="w-full text-left text-sm">
+                          <thead className="bg-slate-800/60 text-slate-400 text-xs uppercase font-medium">
+                            <tr>
+                              <th className="px-4 py-3">Data</th>
+                              <th className="px-4 py-3">Fornecedor</th>
+                              <th className="px-4 py-3">Nota Fiscal</th>
+                              <th className="px-4 py-3 text-center">Qtd</th>
+                              <th className="px-4 py-3 text-right">Preço Pago (un)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800 text-xs">
+                            {historyModal.history.map((h, i) => (
+                              <tr key={i} className="hover:bg-slate-800/40 transition-colors">
+                                <td className="px-4 py-3 text-slate-400">
+                                  {h.date ? new Date(h.date).toLocaleDateString('pt-BR') : '-'}
+                                </td>
+                                <td className="px-4 py-3 font-bold text-slate-200">
+                                  {h.supplier_name}
+                                </td>
+                                <td className="px-4 py-3 text-slate-400 font-mono">
+                                  {h.invoice_number || '-'}
+                                </td>
+                                <td className="px-4 py-3 text-center text-slate-300 font-mono font-bold">
+                                  {h.quantity} un
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono font-bold text-emerald-400">
+                                  R$ {parseFloat(h.unit_cost || 0).toFixed(2)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-12 text-center text-slate-400 bg-slate-950/40 rounded-xl border border-slate-800 p-6">
+                      <p className="text-base font-medium text-slate-300">Nenhuma compra anterior registrada deste produto.</p>
+                      <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                        Este histórico será alimentado automaticamente conforme você for conciliando as notas fiscais recebidas.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-800 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setHistoryModal({ isOpen: false, product: null, loading: false, history: [] })}
+                  className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2 rounded-xl text-sm font-bold transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {renderSupplierModal()}
+      </div>
+    );
+  }
+
+  if (view === 'audits') {
+    const totalLoss = audits
+      .filter(a => parseFloat(a.divergence) < 0)
+      .reduce((sum, a) => sum + (parseFloat(a.financial_loss) || 0), 0);
+
+    const totalMissingUnits = audits
+      .filter(a => parseFloat(a.divergence) < 0)
+      .reduce((sum, a) => sum + Math.abs(parseFloat(a.divergence) || 0), 0);
+
+    const totalSurplusUnits = audits
+      .filter(a => parseFloat(a.divergence) > 0)
+      .reduce((sum, a) => sum + (parseFloat(a.divergence) || 0), 0);
+
+    const filteredAudits = audits.filter(a =>
+      !auditSearch || (a.product_name && a.product_name.toLowerCase().includes(auditSearch.toLowerCase()))
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center flex-wrap gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setView('list')}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"
+                title="Voltar aos Pedidos"
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                <ShieldAlert className="text-red-400" /> Relatório de Auditoria e Prevenção de Perdas
+              </h2>
+            </div>
+            <p className="text-slate-400 text-sm mt-1 ml-11">
+              Registro seguro de todas as divergências, sobras e desvios apurados no fechamento cego de notas fiscais.
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={loadData}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+            >
+              <RefreshCw size={16} /> Atualizar
+            </button>
+            <button
+              onClick={() => setView('list')}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+            >
+              Ver Pedidos de Compra
+            </button>
+          </div>
+        </div>
+
+        {/* CARDS DE RESUMO KPI */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-slate-900 border border-red-500/30 p-5 rounded-2xl shadow-lg">
+            <p className="text-xs uppercase font-bold text-red-400 tracking-wider">Prejuízo Financeiro Total</p>
+            <p className="text-2xl font-black text-red-400 mt-2 font-mono">
+              R$ {totalLoss.toFixed(2)}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-1">Custo acumulado de itens sumidos</p>
+          </div>
+
+          <div className="bg-slate-900 border border-orange-500/30 p-5 rounded-2xl shadow-lg">
+            <p className="text-xs uppercase font-bold text-orange-400 tracking-wider">Total de Itens Faltantes</p>
+            <p className="text-2xl font-black text-orange-400 mt-2">
+              {totalMissingUnits} <span className="text-sm font-normal text-slate-400">unidades</span>
+            </p>
+            <p className="text-[11px] text-slate-500 mt-1">Divergências negativas apuradas</p>
+          </div>
+
+          <div className="bg-slate-900 border border-emerald-500/30 p-5 rounded-2xl shadow-lg">
+            <p className="text-xs uppercase font-bold text-emerald-400 tracking-wider">Total de Sobras</p>
+            <p className="text-2xl font-black text-emerald-400 mt-2">
+              +{totalSurplusUnits} <span className="text-sm font-normal text-slate-400">unidades</span>
+            </p>
+            <p className="text-[11px] text-slate-500 mt-1">Itens contados a mais na prateleira</p>
+          </div>
+
+          <div className="bg-slate-900 border border-blue-500/30 p-5 rounded-2xl shadow-lg">
+            <p className="text-xs uppercase font-bold text-blue-400 tracking-wider">Auditorias Registradas</p>
+            <p className="text-2xl font-black text-blue-400 mt-2">
+              {audits.length}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-1">Ocorrências gravadas no cofre</p>
+          </div>
+        </div>
+
+        {/* BUSCA E FILTRO */}
+        <div className="flex justify-between items-center gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+            <input
+              type="text"
+              placeholder="Filtrar por nome do produto..."
+              value={auditSearch}
+              onChange={(e) => setAuditSearch(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white outline-none focus:border-blue-500"
+            />
+          </div>
+          <span className="text-xs text-slate-400 font-medium">
+            Exibindo {filteredAudits.length} registro(s)
+          </span>
+        </div>
+
+        {/* TABELA DE AUDITORIAS */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden max-w-full overflow-x-auto shadow-xl">
+          <table className="w-full text-left text-sm min-w-[900px]">
+            <thead className="bg-slate-800/60 text-slate-400 font-medium uppercase tracking-wider text-xs">
+              <tr>
+                <th className="px-5 py-4">Data e Hora</th>
+                <th className="px-5 py-4">Produto</th>
+                <th className="px-5 py-4 text-center">Esperado</th>
+                <th className="px-5 py-4 text-center">Contado</th>
+                <th className="px-5 py-4 text-center">Divergência</th>
+                <th className="px-5 py-4 text-right">Custo na Auditoria</th>
+                <th className="px-5 py-4 text-right">Prejuízo (R$)</th>
+                <th className="px-5 py-4">Motivo / Justificativa</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {filteredAudits.map((audit) => {
+                const diff = parseFloat(audit.divergence) || 0;
+                const isLoss = diff < 0;
+                const isSurplus = diff > 0;
+
+                return (
+                  <tr key={audit.id} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="px-5 py-4 text-slate-400 text-xs">
+                      {new Date(audit.created_at).toLocaleString('pt-BR')}
+                    </td>
+                    <td className="px-5 py-4 font-bold text-white">
+                      {audit.product_name}
+                    </td>
+                    <td className="px-5 py-4 text-center text-slate-300 font-mono">
+                      {audit.previous_stock}
+                    </td>
+                    <td className="px-5 py-4 text-center text-slate-300 font-mono font-bold">
+                      {audit.new_stock}
+                    </td>
+                    <td className="px-5 py-4 text-center">
+                      {isLoss ? (
+                        <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-red-500/20 text-red-400 inline-block font-mono">
+                          {diff} un (FALTA)
+                        </span>
+                      ) : isSurplus ? (
+                        <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-emerald-500/20 text-emerald-400 inline-block font-mono">
+                          +{diff} un (SOBRA)
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-slate-800 text-slate-400 inline-block">
+                          0 un (BATEU)
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-right text-slate-400 font-mono text-xs">
+                      R$ {parseFloat(audit.cost_price_at_audit || 0).toFixed(2)}
+                    </td>
+                    <td className="px-5 py-4 text-right font-mono font-bold">
+                      {isLoss ? (
+                        <span className="text-red-400 font-bold">
+                          R$ {parseFloat(audit.financial_loss || 0).toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-slate-300 text-xs">
+                      <span className="bg-slate-800 px-2.5 py-1 rounded-md text-slate-300 border border-slate-700">
+                        {audit.reason || 'Sem justificativa'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {filteredAudits.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="text-center py-10 text-slate-500 italic">
+                    Nenhuma divergência ou registro de auditoria encontrado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -5481,7 +8212,13 @@ function Purchases() {
     <div className="space-y-6">
       <div className="flex justify-between items-center flex-wrap gap-4">
         <h2 className="text-2xl font-bold">Pedidos de Compra</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setView('audits')}
+            className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
+          >
+            <ShieldAlert size={18} /> Auditoria e Perdas
+          </button>
           <button
             onClick={() => setIsSupplierModalOpen(true)}
             className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
@@ -5489,7 +8226,12 @@ function Purchases() {
             <Users size={18} /> Fornecedores
           </button>
           <button
-            onClick={() => setView('new_order')}
+            onClick={() => {
+              setOrderSupplierId('');
+              setEditingOrder(null);
+              setNewOrderItems([{ raw_name: '', clean_name: '', raw_quantity: 1, raw_format: 'Garrafa', raw_size: 1, raw_unit: 'L', raw_unit_price: 0, product_id: null }]);
+              setView('new_order');
+            }}
             className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"
           >
             <Plus size={18} /> Novo Pedido
@@ -5528,7 +8270,7 @@ function Purchases() {
                   )}
                 </td>
                 <td className="px-6 py-4 text-right flex justify-end gap-2">
-                  {order.status === 'pending' && (
+                  {order.status === 'pending' ? (
                     <>
                       <button
                         onClick={() => startReconciliation(order)}
@@ -5539,7 +8281,18 @@ function Purchases() {
                       <button
                         onClick={() => {
                           setEditingOrder(order);
-                          setNewOrderItems(order.items.length > 0 ? order.items : [{ raw_name: '', raw_quantity: 1, raw_unit_price: 0 }]);
+                          setOrderSupplierId(order.supplier_id ? order.supplier_id.toString() : '');
+                          setNewOrderItems(order.items.length > 0 ? order.items.map((it: any) => ({
+                            ...it,
+                            raw_name: it.raw_name,
+                            clean_name: it.clean_name || it.raw_name,
+                            raw_quantity: it.raw_quantity || 1,
+                            raw_format: it.raw_format || 'Garrafa',
+                            raw_size: it.raw_size || 1,
+                            raw_unit: it.raw_unit || 'L',
+                            raw_unit_price: it.raw_unit_price || 0,
+                            product_id: it.product_id || null
+                          })) : [{ raw_name: '', clean_name: '', raw_quantity: 1, raw_format: 'Garrafa', raw_size: 1, raw_unit: 'L', raw_unit_price: 0, product_id: null }]);
                           setView('new_order');
                         }}
                         className="text-blue-400 hover:text-blue-300 p-2 hover:bg-blue-500/10 rounded-lg transition-colors"
@@ -5555,6 +8308,23 @@ function Purchases() {
                         <Trash2 size={16} />
                       </button>
                     </>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSummaryModal({ isOpen: true, order })}
+                        className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 font-bold text-xs shadow-sm"
+                        title="Ver lista e detalhes da conciliação"
+                      >
+                        <Eye size={14} /> Ver Conciliação
+                      </button>
+                      <button
+                        onClick={() => handleDeleteOrder(order.id)}
+                        className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Excluir Registro"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -5566,67 +8336,148 @@ function Purchases() {
         </table>
       </div>
 
-      {isSupplierModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Gerenciar Fornecedores</h3>
-              <button onClick={() => { setIsSupplierModalOpen(false); setEditingSupplier(null); }} className="text-slate-400 hover:text-white"><XCircle size={24} /></button>
-            </div>
+      {renderSupplierModal()}
 
-            <form onSubmit={handleSaveSupplier} className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl mb-6 space-y-4">
-              <h4 className="font-bold text-sm text-blue-400">{editingSupplier ? 'Editar Fornecedor' : 'Novo Fornecedor'}</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">Nome</label>
-                  <input name="name" defaultValue={editingSupplier?.name} required className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm" />
+      {/* MODAL DE RESUMO E LISTA DA CONCILIAÇÃO CONCLUÍDA */}
+      {summaryModal.isOpen && summaryModal.order && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-5xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl">
+                  ✓
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">CNPJ/CPF</label>
-                  <input name="document" defaultValue={editingSupplier?.document} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">Telefone</label>
-                  <input name="phone" defaultValue={editingSupplier?.phone} className="w-full bg-slate-800 border-slate-700 rounded-lg p-2 text-sm" />
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span>Relatório de Conciliação de Compra</span>
+                    <span className="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold uppercase">
+                      Conciliado com Sucesso
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Fornecedor: <strong className="text-slate-200">{summaryModal.order.supplier_name || 'Avulso'}</strong> | 
+                    Nota Fiscal: <strong className="text-slate-200">{summaryModal.order.invoice_number || 'S/N'}</strong> | 
+                    Data: <strong className="text-slate-200">{new Date(summaryModal.order.reconciled_at || summaryModal.order.created_at).toLocaleDateString('pt-BR')}</strong>
+                  </p>
                 </div>
               </div>
-              <div className="flex justify-end gap-2">
-                {editingSupplier && (
-                  <button type="button" onClick={() => setEditingSupplier(null)} className="text-slate-400 text-sm px-3 hover:text-white">Cancelar</button>
-                )}
-                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-bold">
-                  {editingSupplier ? 'Atualizar' : 'Adicionar'}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-colors"
+                >
+                  🖨️ Imprimir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSummaryModal({ isOpen: false, order: null })}
+                  className="text-slate-400 hover:text-white p-1"
+                >
+                  <XCircle size={24} />
                 </button>
               </div>
-            </form>
+            </div>
 
-            <div className="overflow-y-auto flex-1">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-800/50 text-slate-400 font-medium">
+            {/* CARDS DE VALORES GERAIS */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <p className="text-[10px] uppercase text-slate-500 font-bold">Valor dos Produtos (NF)</p>
+                <p className="text-lg font-black text-emerald-400 font-mono mt-0.5">
+                  R$ {parseFloat(summaryModal.order.total_amount || 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <p className="text-[10px] uppercase text-slate-500 font-bold">Frete Rateado</p>
+                <p className="text-lg font-black text-orange-400 font-mono mt-0.5">
+                  R$ {parseFloat(summaryModal.order.freight_amount || 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <p className="text-[10px] uppercase text-slate-500 font-bold">Total Geral da Compra</p>
+                <p className="text-lg font-black text-white font-mono mt-0.5">
+                  R$ {(parseFloat(summaryModal.order.total_amount || 0) + parseFloat(summaryModal.order.freight_amount || 0)).toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            {/* TABELA DE ITENS CONCILIADOS */}
+            <div className="overflow-y-auto flex-1 border border-slate-800 rounded-xl bg-slate-950/70 shadow-inner">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 bg-slate-900 border-b border-slate-800 text-[10px] font-black uppercase text-slate-400 tracking-wider">
                   <tr>
-                    <th className="px-4 py-2 rounded-tl-lg">Nome</th>
-                    <th className="px-4 py-2">Documento</th>
-                    <th className="px-4 py-2">Telefone</th>
-                    <th className="px-4 py-2 text-right rounded-tr-lg">Ações</th>
+                    <th className="px-4 py-3">ITEM NA NOTA (NF)</th>
+                    <th className="px-3 py-3 text-center">QTD COMPRADA</th>
+                    <th className="px-3 py-3 text-right">CUSTO UNIT. NF</th>
+                    <th className="px-4 py-3">PRODUTO VINCULADO NO SISTEMA</th>
+                    <th className="px-3 py-3 text-center">ENTROU NO ESTOQUE</th>
+                    <th className="px-3 py-3 text-right">CUSTO FINAL C/ FRETE</th>
+                    <th className="px-4 py-3 text-right">SUBTOTAL</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {suppliers.map(s => (
-                    <tr key={s.id} className="hover:bg-slate-800/30">
-                      <td className="px-4 py-3 text-slate-200 font-medium">{s.name}</td>
-                      <td className="px-4 py-3 text-slate-400">{s.document || '-'}</td>
-                      <td className="px-4 py-3 text-slate-400">{s.phone || '-'}</td>
-                      <td className="px-4 py-3 text-right">
-                        <button onClick={() => setEditingSupplier(s)} className="text-blue-400 p-1 hover:bg-blue-500/10 rounded"><Edit size={14} /></button>
-                        <button onClick={() => handleDeleteSupplier(s.id)} className="text-red-400 p-1 hover:bg-red-500/10 rounded ml-1"><Trash2 size={14} /></button>
-                      </td>
-                    </tr>
-                  ))}
-                  {suppliers.length === 0 && (
-                    <tr><td colSpan={4} className="text-center py-4 text-slate-500 italic">Nenhum fornecedor cadastrado.</td></tr>
-                  )}
+                <tbody className="divide-y divide-slate-800/60">
+                  {summaryModal.order.items?.map((item: any, idx: number) => {
+                    const sysName = item.system_product_name || products.find(p => p.id === item.product_id)?.name || item.clean_name || item.raw_name;
+                    const unitCost = item.reconciled_unit_cost || item.raw_unit_price || 0;
+                    const qtyInStock = item.reconciled_quantity !== undefined ? item.reconciled_quantity : item.raw_quantity;
+                    const totalItem = (item.raw_quantity || 0) * (item.raw_unit_price || 0);
+
+                    return (
+                      <tr key={idx} className="hover:bg-slate-900/40">
+                        <td className="px-4 py-3">
+                          <p className="font-bold text-white text-sm">{item.clean_name || item.raw_name}</p>
+                          <div className="flex gap-1.5 mt-1">
+                            {item.raw_format && (
+                              <span className="text-[10px] bg-blue-950/80 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded font-bold">
+                                📦 {item.raw_format}
+                              </span>
+                            )}
+                            {item.raw_size && (
+                              <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded font-mono font-bold">
+                                📏 {item.raw_size}{item.raw_unit || 'un'}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-center font-bold text-slate-300 text-sm">
+                          {item.raw_quantity} {item.raw_format || 'un'}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-slate-300 text-xs">
+                          R$ {parseFloat(item.raw_unit_price || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-emerald-400 font-black">✓</span>
+                            <span className="font-bold text-emerald-400 text-sm">{sysName}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-center font-black text-emerald-400 text-sm font-mono">
+                          +{qtyInStock} {item.raw_format || 'un'}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-bold text-slate-200 text-xs">
+                          R$ {parseFloat(unitCost).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-black text-emerald-400 text-sm">
+                          R$ {totalItem.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+            </div>
+
+            <div className="flex justify-between items-center pt-4 mt-2 border-t border-slate-800">
+              <span className="text-xs text-slate-400">
+                ✓ Todos os itens foram consolidados e integrados ao estoque simples do sistema.
+              </span>
+              <button
+                type="button"
+                onClick={() => setSummaryModal({ isOpen: false, order: null })}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-xs font-bold transition-colors shadow-lg shadow-blue-900/30"
+              >
+                Fechar Visualização
+              </button>
             </div>
           </div>
         </div>

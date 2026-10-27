@@ -1584,12 +1584,14 @@ export default function Waiter() {
                       key={mItem.id}
                       disabled={!hasStock}
                       onClick={() => {
+                        const modQty = mItem.quantity !== undefined ? mItem.quantity : 1;
                         const newSelections = [...wizardSelections, {
                           modifier_item_id: mItem.id,
                           product_id: p.id,
                           is_fixed_price: mItem.is_fixed_price,
                           original_price: p.price,
-                          cost_at_time: p.cost_price || 0
+                          cost_at_time: (p.cost_price || 0) * modQty,
+                          quantity: modQty
                         }];
                         setWizardSelections(newSelections);
                         
@@ -1610,7 +1612,8 @@ export default function Waiter() {
                               product_id: sel.product_id,
                               product_name: prod?.name || 'Item',
                               price_at_time: adjustedPrice,
-                              cost_at_time: sel.cost_at_time || 0
+                              cost_at_time: sel.cost_at_time || 0,
+                              quantity: sel.quantity || 1
                             };
                           });
 

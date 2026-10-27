@@ -14,3 +14,16 @@ dashboards/bar/.env
 .wrangler
 .dev.vars*
 !.dev.vars.example
+
+# backups e arquivos temporarios locais
+backups/
+backup-supabase.mjs
+test-supabase.mjs
+test_*.js
+printer*.js
+*.ps1
+deploy_b64.txt
+payload.txt
+*.cjs
+*.sql
+
