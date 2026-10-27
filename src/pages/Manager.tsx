@@ -3605,9 +3605,50 @@ function Products() {
       data.parent_id = null;
     }
 
-    if (productType === 'simple' || productType === 'composition') {
+    if (productType === 'simple') {
       data.price = parseFloat(formData.get('price') as string);
       data.cost_price = parseFloat(formData.get('cost_price') as string);
+    } else if (productType === 'composition') {
+      data.price = parseFloat(formData.get('price') as string);
+      
+      // Calcula o custo real consolidado: Ingredientes base + Passos do Combo (cotas)
+      let baseCost = 0;
+      ingredients.forEach((ing: any) => {
+        const linked = products.find(p => p.id === ing.ingredient_id);
+        const vol = getProductVolume(linked);
+        const qty = parseFloat(ing.quantity) || 0;
+        const compUnits = getCompatibleUnits(linked);
+        const unit = ing.unit || compUnits[0]?.value || 'un';
+        let frac = qty;
+        if (unit === 'ml' && vol > 1) frac = qty / vol;
+        else if (unit === 'L') frac = (qty * 1000) / (vol > 1 ? vol : 1000);
+        else if (unit === 'g' && vol > 1) frac = qty / vol;
+        else if (unit === 'kg') frac = (qty * 1000) / (vol > 1 ? vol : 1000);
+        baseCost += frac * (linked?.cost_price || 0);
+      });
+
+      let modCost = 0;
+      modifierGroups.forEach((mg: any) => {
+        const maxSelect = parseInt(mg.max_select) || 1;
+        const items = mg.product_modifier_items || [];
+        if (items.length > 0) {
+          const itemCosts = items.map((i: any) => {
+            const linked = products.find(p => p.id === i.linked_product_id);
+            const qty = parseFloat(i.quantity) || 1;
+            return (linked?.cost_price || 0) * qty;
+          }).filter((c: number) => c > 0);
+
+          const avgCost = itemCosts.length > 0 
+            ? itemCosts.reduce((a: number, b: number) => a + b, 0) / itemCosts.length 
+            : 0;
+
+          modCost += avgCost * maxSelect;
+        }
+      });
+
+      const totalCalculated = parseFloat((baseCost + modCost).toFixed(2));
+      const manualCost = parseFloat(formData.get('cost_price') as string);
+      data.cost_price = totalCalculated > 0 ? totalCalculated : (!isNaN(manualCost) ? manualCost : 0);
     } else {
       data.price = 0; // Default price for variable parent
       data.cost_price = 0;
@@ -4630,8 +4671,54 @@ function Products() {
                     <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required onInput={e => { const el = e.target as HTMLInputElement; const p = el.value.split('.'); if (p[1]?.length > 2) el.value = parseFloat(el.value).toFixed(2); }} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-1">Preço Custo (R$)</label>
-                    <input name="cost_price" type="number" step="0.01" defaultValue={editingProduct?.cost_price} onInput={e => { const el = e.target as HTMLInputElement; const p = el.value.split('.'); if (p[1]?.length > 2) el.value = parseFloat(el.value).toFixed(2); }} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-sm font-medium text-slate-400">Preço Custo (R$)</label>
+                      {productType === 'composition' && (
+                        <span className="text-[10px] text-amber-400 font-bold uppercase bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">Calculado Auto</span>
+                      )}
+                    </div>
+                    <input 
+                      name="cost_price" 
+                      type="number" 
+                      step="0.01" 
+                      value={(() => {
+                        if (productType !== 'composition') return undefined;
+                        let base = 0;
+                        ingredients.forEach((ing: any) => {
+                          const linked = products.find(p => p.id === ing.ingredient_id);
+                          const vol = getProductVolume(linked);
+                          const qty = parseFloat(ing.quantity) || 0;
+                          const compUnits = getCompatibleUnits(linked);
+                          const unit = ing.unit || compUnits[0]?.value || 'un';
+                          let frac = qty;
+                          if (unit === 'ml' && vol > 1) frac = qty / vol;
+                          else if (unit === 'L') frac = (qty * 1000) / (vol > 1 ? vol : 1000);
+                          else if (unit === 'g' && vol > 1) frac = qty / vol;
+                          else if (unit === 'kg') frac = (qty * 1000) / (vol > 1 ? vol : 1000);
+                          base += frac * (linked?.cost_price || 0);
+                        });
+                        let mod = 0;
+                        modifierGroups.forEach((mg: any) => {
+                          const maxSelect = parseInt(mg.max_select) || 1;
+                          const items = mg.product_modifier_items || [];
+                          if (items.length > 0) {
+                            const costs = items.map((i: any) => {
+                              const linked = products.find(p => p.id === i.linked_product_id);
+                              const qty = parseFloat(i.quantity) || 1;
+                              return (linked?.cost_price || 0) * qty;
+                            }).filter((c: number) => c > 0);
+                            const avg = costs.length > 0 ? costs.reduce((a: number, b: number) => a + b, 0) / costs.length : 0;
+                            mod += avg * maxSelect;
+                          }
+                        });
+                        const total = base + mod;
+                        return total > 0 ? total.toFixed(2) : (editingProduct?.cost_price ? Number(editingProduct.cost_price).toFixed(2) : '0.00');
+                      })()}
+                      defaultValue={productType !== 'composition' ? editingProduct?.cost_price : undefined}
+                      readOnly={productType === 'composition'}
+                      onInput={e => { const el = e.target as HTMLInputElement; const p = el.value.split('.'); if (p[1]?.length > 2) el.value = parseFloat(el.value).toFixed(2); }} 
+                      className={`w-full bg-slate-800 border rounded-lg px-4 py-2 outline-none ${productType === 'composition' ? 'border-amber-500/40 text-amber-300 font-bold bg-slate-800/80 cursor-not-allowed' : 'border-slate-700 focus:ring-2 focus:ring-blue-500'}`} 
+                    />
                   </div>
                   {productType === 'simple' && (
                     <>

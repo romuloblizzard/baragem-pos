@@ -609,19 +609,35 @@ export default function Waiter() {
     } else {
       // Finalize combo
       const allSelections = Object.values(newStepSelections).flat();
-      const totalOriginalPrice = allSelections.reduce((acc: number, sel: any) => acc + (sel.original_price || 0), 0);
-      const ratio = totalOriginalPrice > 0 ? (wizardProduct.price / totalOriginalPrice) : 1;
+      
+      // 1. Custo dos ingredientes base (ex: 1 garrafa de Whisky, R$ 100/120)
+      const baseProductCost = wizardProduct.ingredients && wizardProduct.ingredients.length > 0
+        ? wizardProduct.ingredients.reduce((sum: number, ing: any) => {
+            let actualQty = ing.quantity || 0;
+            const vol = ing.ingredient_bottle_volume_ml || 0;
+            if (vol > 0 && actualQty >= 10) actualQty = actualQty / vol;
+            return sum + ((ing.ingredient_cost || 0) * actualQty);
+          }, 0)
+        : (wizardProduct.cost_price || 0);
 
-      let finalComboPrice = 0;
+      // 2. Custo real dos modificadores escolhidos pelo garçom (ex: 4 gelos + 4 red bulls)
+      const modifiersCostTotal = allSelections.reduce((sum: number, sel: any) => sum + (sel.cost_at_time || 0), 0);
+
+      // Custo Total Consolidado do Combo (Whisky + Gelos + Red Bulls)
+      const totalComboCost = parseFloat((baseProductCost + modifiersCostTotal).toFixed(2));
+
+      // 3. Preço do Combo: Preço base do combo + eventuais itens marcados como Preço Fixo Extra
+      const extraPriceTotal = allSelections.reduce((sum: number, sel: any) => sum + (sel.is_fixed_price ? (sel.original_price || 0) : 0), 0);
+      const finalComboPrice = (wizardProduct.price || 0) + extraPriceTotal;
+
       const finalModifiers = allSelections.map((sel: any) => {
         const p = products.find(prod => prod.id === sel.product_id);
-        const adjustedPrice = sel.is_fixed_price ? sel.original_price : (sel.original_price * ratio);
-        finalComboPrice += adjustedPrice;
+        const extraPrice = sel.is_fixed_price ? (sel.original_price || 0) : 0;
         return {
           modifier_item_id: sel.modifier_item_id,
           product_id: sel.product_id,
           product_name: p?.name || 'Item',
-          price_at_time: adjustedPrice,
+          price_at_time: extraPrice,
           cost_at_time: sel.cost_at_time || 0,
           quantity: sel.quantity || 1
         };
@@ -634,6 +650,8 @@ export default function Waiter() {
         __is_calculated: true,
         price: finalComboPrice,
         price_at_time: finalComboPrice,
+        cost_price: totalComboCost,
+        cost_at_time: totalComboCost,
         quantity: 1,
         modifiers: finalModifiers
       };
@@ -724,11 +742,13 @@ export default function Waiter() {
     setIsSubmittingOrder(true);
     try {
       const itemsToInsert = cart.map(item => {
-        // Para combos/wizard, o custo é a soma dos custos dos modificadores
-        // Para simples/composição, usa o cost_price do produto (já calculado dinamicamente pelo getProducts)
-        const costAtTime = (item.modifiers && item.modifiers.length > 0)
-          ? item.modifiers.reduce((sum: number, m: any) => sum + (m.cost_at_time || 0), 0)
-          : (item.cost_price || 0);
+        // Custo total consolidado: prioriza cost_at_time pré-calculado pelo wizard (whisky + gelos + energéticos).
+        // Se não houver cost_at_time explícito mas houver modificadores avulsos, soma cost_price + modificadores.
+        const costAtTime = item.cost_at_time !== undefined
+          ? item.cost_at_time
+          : ((item.cost_price || 0) + (item.modifiers && item.modifiers.length > 0
+              ? item.modifiers.reduce((sum: number, m: any) => sum + (m.cost_at_time || 0), 0)
+              : 0));
 
         return {
           id: item.base_product_id || item.id,
@@ -1887,7 +1907,9 @@ export default function Waiter() {
                     {item.modifiers.map((m: any, mIdx: number) => (
                       <p key={mIdx} className="text-[10px] text-slate-400 flex justify-between">
                         <span>• {m.quantity > 1 ? `${m.quantity}x ` : ''}{m.product_name || 'Opção selecionada'}</span>
-                        <span>R$ {m.price_at_time?.toFixed(2)}</span>
+                        <span className={m.price_at_time > 0 ? "text-amber-400 font-semibold" : "text-emerald-400 font-medium"}>
+                          {m.price_at_time > 0 ? `+ R$ ${m.price_at_time.toFixed(2)}` : '(Incluso)'}
+                        </span>
                       </p>
                     ))}
                   </div>

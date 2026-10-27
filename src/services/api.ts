@@ -104,20 +104,48 @@ export const api = {
               };
             });
 
-            // Dynamic cost: sum of (ingredient cost × quantity used)
-            if (p.ingredients.length > 0) {
-              p.cost_price = p.ingredients.reduce((sum: number, ing: any) => {
+            // Dynamic cost: base ingredients (ex: Whisky) + modifier groups (ex: 4 gelos + 4 energéticos)
+            let baseCost = 0;
+            if (p.ingredients && p.ingredients.length > 0) {
+              baseCost = p.ingredients.reduce((sum: number, ing: any) => {
                 let actualQty = ing.quantity || 0;
                 const vol = ing.ingredient_bottle_volume_ml || 0;
-                // Valores legados >= 10 foram salvos em ml/g brutos (ex: 150ml, 250ml); converte para fração dividindo por vol.
-                // Valores < 10 são frações da embalagem (ex: 0.20 = 150ml) ou unidades inteiras (ex: 1 garrafa, 2 latas).
                 if (vol > 0 && actualQty >= 10) {
                   actualQty = actualQty / vol;
                 }
                 return sum + ((ing.ingredient_cost || 0) * actualQty);
               }, 0);
+            }
 
-              // Dynamic stock: min of (ingredient stock / quantity needed), floored
+            let modifiersCost = 0;
+            if (p.modifier_groups && p.modifier_groups.length > 0) {
+              for (const mg of p.modifier_groups) {
+                const maxSelect = parseInt(mg.max_select) || 1;
+                const items = mg.product_modifier_items || [];
+                if (items.length > 0) {
+                  const itemCosts = items.map((i: any) => {
+                    const cost = i.linked_product?.cost_price !== undefined 
+                      ? Number(i.linked_product.cost_price) 
+                      : 0;
+                    const qty = i.quantity !== undefined ? parseFloat(i.quantity) : 1;
+                    return cost * qty;
+                  }).filter((c: number) => c > 0);
+
+                  const avgCost = itemCosts.length > 0 
+                    ? itemCosts.reduce((a: number, b: number) => a + b, 0) / itemCosts.length 
+                    : 0;
+
+                  modifiersCost += avgCost * maxSelect;
+                }
+              }
+            }
+
+            if ((p.ingredients && p.ingredients.length > 0) || modifiersCost > 0) {
+              p.cost_price = parseFloat((baseCost + modifiersCost).toFixed(2));
+            }
+
+            // Dynamic stock: min of (ingredient stock / quantity needed), floored
+            if (p.ingredients && p.ingredients.length > 0) {
               p.stock = Math.floor(Math.min(
                 ...p.ingredients.map((ing: any) => {
                   let actualQty = ing.quantity || 0;
