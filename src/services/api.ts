@@ -109,8 +109,9 @@ export const api = {
               p.cost_price = p.ingredients.reduce((sum: number, ing: any) => {
                 let actualQty = ing.quantity || 0;
                 const vol = ing.ingredient_bottle_volume_ml || 0;
-                // Se a quantidade for em ml/g (>= 1) e o produto tiver volume cadastrado (> 0), converte para fração da embalagem
-                if (vol > 0 && actualQty >= 1) {
+                // Valores legados >= 10 foram salvos em ml/g brutos (ex: 150ml, 250ml); converte para fração dividindo por vol.
+                // Valores < 10 são frações da embalagem (ex: 0.20 = 150ml) ou unidades inteiras (ex: 1 garrafa, 2 latas).
+                if (vol > 0 && actualQty >= 10) {
                   actualQty = actualQty / vol;
                 }
                 return sum + ((ing.ingredient_cost || 0) * actualQty);
@@ -121,7 +122,7 @@ export const api = {
                 ...p.ingredients.map((ing: any) => {
                   let actualQty = ing.quantity || 0;
                   const vol = ing.ingredient_bottle_volume_ml || 0;
-                  if (vol > 0 && actualQty >= 1) {
+                  if (vol > 0 && actualQty >= 10) {
                     actualQty = actualQty / vol;
                   }
                   if (actualQty <= 0) return 0;

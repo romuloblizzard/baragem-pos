@@ -487,8 +487,9 @@ export default function Waiter() {
         // Find which ingredients are out of stock
         const insufficientIngredients = (product.ingredients || []).filter((ing: any) => {
           let neededQty = ing.quantity || 0;
-          if (ing.ingredient_category === 'Garrafa' && ing.ingredient_bottle_volume_ml) {
-            neededQty = neededQty / ing.ingredient_bottle_volume_ml;
+          const vol = ing.ingredient_bottle_volume_ml || 0;
+          if (vol > 0 && neededQty >= 10) {
+            neededQty = neededQty / vol;
           }
           const available = ing.ingredient_stock || 0;
           return (intentQty * neededQty) > available;

@@ -3437,7 +3437,7 @@ function Products() {
       }));
       setModifierGroups(formattedModGroups);
 
-      // Converte ingredientes antigos para unidades amigáveis
+      // Converte ingredientes para unidades amigáveis respeitando Garrafa (un) vs frações (ml/g)
       const formattedIngredients = (editingProduct.ingredients || []).map((ing: any) => {
         const linked = products.find(p => p.id === ing.ingredient_id);
         const type = getProductMeasurementType(linked);
@@ -3447,16 +3447,32 @@ function Products() {
         let displayQty = rawQty;
 
         if (type === 'liquid') {
-          if (!unit) unit = 'ml';
           if (rawQty > 0 && rawQty < 1 && vol > 1) {
+            // Fração salva (ex: 0.20 = 150ml de garrafa de 750ml)
             displayQty = Math.round(rawQty * vol);
             unit = 'ml';
+          } else if (rawQty >= 10) {
+            // Valor legado já salvo em ml (ex: 150, 250)
+            displayQty = rawQty;
+            unit = 'ml';
+          } else {
+            // Garrafas / unidades inteiras (ex: 1, 2 garrafas)
+            displayQty = rawQty;
+            unit = 'un';
           }
         } else if (type === 'solid') {
-          if (!unit) unit = 'g';
           if (rawQty > 0 && rawQty < 1 && vol > 1) {
+            // Fração salva (ex: 0.40 = 400g de pacote de 1000g)
             displayQty = Math.round(rawQty * vol);
             unit = 'g';
+          } else if (rawQty >= 10) {
+            // Valor legado já salvo em g (ex: 100, 400)
+            displayQty = rawQty;
+            unit = 'g';
+          } else {
+            // Pacotes / unidades inteiras
+            displayQty = rawQty;
+            unit = 'un';
           }
         } else {
           unit = 'un';
@@ -3716,14 +3732,29 @@ function Products() {
       if (selectedProd) {
         const type = getProductMeasurementType(selectedProd);
         const compUnits = getCompatibleUnits(selectedProd);
+        const vol = getProductVolume(selectedProd);
         newIngredients[index].unit = compUnits[0]?.value || 'un';
         if (type === 'liquid') {
-          newIngredients[index].quantity = 250;
+          newIngredients[index].quantity = vol > 1 ? (vol >= 1000 ? 150 : Math.round(vol * 0.2)) : 1;
         } else if (type === 'solid') {
-          newIngredients[index].quantity = 400;
+          newIngredients[index].quantity = vol > 1 ? 400 : 1;
         } else {
           newIngredients[index].quantity = 1;
         }
+      }
+    } else if (field === 'unit') {
+      const linked = products.find(p => p.id === newIngredients[index].ingredient_id);
+      const vol = getProductVolume(linked);
+      if (value === 'un') {
+        newIngredients[index].quantity = 1;
+      } else if (value === 'ml') {
+        newIngredients[index].quantity = vol > 1 ? (vol >= 1000 ? 150 : Math.round(vol * 0.2)) : 150;
+      } else if (value === 'L') {
+        newIngredients[index].quantity = 1;
+      } else if (value === 'g') {
+        newIngredients[index].quantity = vol > 1 ? 400 : 100;
+      } else if (value === 'kg') {
+        newIngredients[index].quantity = 1;
       }
     }
     setIngredients(newIngredients);
@@ -4873,6 +4904,73 @@ function Products() {
                               <Trash2 size={16} />
                             </button>
                           </div>
+
+                          {linkedProd && (
+                            <div className="flex flex-wrap items-center justify-between text-xs px-2.5 py-1 bg-slate-900/60 rounded-lg border border-slate-800/80 text-slate-300">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-emerald-400">📦 Baixa:</span>
+                                {(() => {
+                                  const vol = getProductVolume(linkedProd);
+                                  const qtyNum = parseFloat(ing.quantity) || 0;
+                                  const fmt = linkedProd.purchase_unit || (type === 'liquid' ? 'Garrafa' : type === 'solid' ? 'Pacote' : 'Unidade');
+                                  if (currentUnit === 'ml' && vol > 1) {
+                                    const frac = (qtyNum / vol).toFixed(2);
+                                    return (
+                                      <span>
+                                        <strong className="text-white">{qtyNum} ml</strong> (= {frac} {fmt} de {vol}ml)
+                                      </span>
+                                    );
+                                  } else if (currentUnit === 'L') {
+                                    const frac = ((qtyNum * 1000) / (vol > 1 ? vol : 1000)).toFixed(2);
+                                    return (
+                                      <span>
+                                        <strong className="text-white">{qtyNum} L</strong> (= {frac} {fmt})
+                                      </span>
+                                    );
+                                  } else if (currentUnit === 'g' && vol > 1) {
+                                    const frac = (qtyNum / vol).toFixed(2);
+                                    return (
+                                      <span>
+                                        <strong className="text-white">{qtyNum} g</strong> (= {frac} {fmt} de {vol}g)
+                                      </span>
+                                    );
+                                  } else if (currentUnit === 'kg') {
+                                    const frac = ((qtyNum * 1000) / (vol > 1 ? vol : 1000)).toFixed(2);
+                                    return (
+                                      <span>
+                                        <strong className="text-white">{qtyNum} kg</strong> (= {frac} {fmt})
+                                      </span>
+                                    );
+                                  } else {
+                                    return (
+                                      <span>
+                                        <strong className="text-white">{qtyNum} {fmt} inteira(s)</strong>
+                                        {vol > 1 ? ` (${vol}${type === 'liquid' ? 'ml' : 'g'})` : ''}
+                                      </span>
+                                    );
+                                  }
+                                })()}
+                              </div>
+                              <div className="text-right">
+                                {(() => {
+                                  const vol = getProductVolume(linkedProd);
+                                  const qtyNum = parseFloat(ing.quantity) || 0;
+                                  const costUnit = linkedProd.cost_price || 0;
+                                  let frac = qtyNum;
+                                  if (currentUnit === 'ml' && vol > 1) frac = qtyNum / vol;
+                                  else if (currentUnit === 'L') frac = (qtyNum * 1000) / (vol > 1 ? vol : 1000);
+                                  else if (currentUnit === 'g' && vol > 1) frac = qtyNum / vol;
+                                  else if (currentUnit === 'kg') frac = (qtyNum * 1000) / (vol > 1 ? vol : 1000);
+                                  const costTotal = frac * costUnit;
+                                  return (
+                                    <span>
+                                      Custo deste item: <strong className="text-amber-300">R$ {costTotal.toFixed(2)}</strong>
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
