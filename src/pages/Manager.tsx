@@ -37,11 +37,21 @@ const getProductMeasurementType = (p: any): 'liquid' | 'solid' | 'unit' => {
   const name = (p.name || '').toLowerCase();
   const u = (p.unit || '').toLowerCase();
   const fmt = (p.purchase_unit || '').toLowerCase();
+  const vol = p.bottle_volume_ml || p.unit_conversion_factor || 0;
   
-  if (u === 'ml' || u === 'l' || fmt.includes('garrafa') || fmt.includes('lata') || fmt.includes('barril') || fmt.includes('balde') || /litro|ml|\b\d+l\b/i.test(name)) {
+  // Se for unidade estrita e não tiver volume de fracionamento (ou volume <= 1), é unitário
+  // Ex: Energético em lata, cerveja em lata, água, refrigerante em lata
+  if (u === 'un' && (fmt === 'unidade' || fmt === 'lata' || !fmt) && vol <= 1) {
+    return 'unit';
+  }
+
+  if (u === 'ml' || u === 'l' || fmt.includes('garrafa') || fmt.includes('barril') || fmt.includes('balde') || vol > 1 || /litro|ml|\b\d+l\b/i.test(name)) {
+    // Se explicitamente cadastrado como unidade sem fracionamento
+    if (u === 'un' && fmt === 'unidade' && vol <= 1) return 'unit';
     return 'liquid';
   }
   if (u === 'g' || u === 'kg' || fmt.includes('pacote') || /quilo|kilo|\b\d+kg\b|\b\d+g\b|grama/i.test(name)) {
+    if (u === 'un' && fmt === 'unidade' && vol <= 1) return 'unit';
     return 'solid';
   }
   return 'unit';
@@ -53,20 +63,20 @@ const getCompatibleUnits = (p: any): Array<{ value: string; label: string }> => 
   const fmt = p?.purchase_unit || (type === 'liquid' ? 'Garrafa' : type === 'solid' ? 'Pacote' : 'Unidade');
   if (type === 'liquid') {
     return [
+      { value: 'un', label: `${fmt} (un)` },
       { value: 'ml', label: 'ml' },
-      { value: 'L', label: 'L' },
-      { value: 'un', label: `${fmt} (un)` }
+      { value: 'L', label: 'L' }
     ];
   }
   if (type === 'solid') {
     return [
+      { value: 'un', label: `${fmt} (un)` },
       { value: 'g', label: 'g' },
-      { value: 'kg', label: 'kg' },
-      { value: 'un', label: `${fmt} (un)` }
+      { value: 'kg', label: 'kg' }
     ];
   }
   return [
-    { value: 'un', label: 'un' }
+    { value: 'un', label: `${fmt} (un)` }
   ];
 };
 
@@ -3405,7 +3415,7 @@ function Products() {
         size: parseFloat(b.unit_size) || 1,
         totalPrice: parseFloat(b.total_price) || 0
       })) || []);
-      // Converte modifier_groups e ingredientes antigos (ex: frações 0.125 ou 0.2) para unidades amigáveis (ex: 250ml ou 400g)
+      // Converte modifier_groups para unidades amigáveis respeitando Garrafa/Lata/Unidade (un) vs frações (ml/g)
       const formattedModGroups = (editingProduct.modifier_groups || []).map((mg: any) => ({
         ...mg,
         product_modifier_items: (mg.product_modifier_items || []).map((item: any) => {
@@ -3417,18 +3427,32 @@ function Products() {
           let displayQty = rawQty;
 
           if (type === 'liquid') {
-            if (!unit) unit = 'ml';
             if (rawQty > 0 && rawQty < 1 && vol > 1) {
+              // Fração salva (ex: 0.20 = 150ml de garrafa de 750ml)
               displayQty = Math.round(rawQty * vol);
               unit = 'ml';
+            } else if (rawQty >= 10) {
+              // Valor legado salvo em ml
+              displayQty = rawQty;
+              unit = 'ml';
+            } else {
+              // Unidades / latas / garrafas inteiras (ex: 1 lata de energético, 1 garrafa)
+              displayQty = rawQty;
+              unit = 'un';
             }
           } else if (type === 'solid') {
-            if (!unit) unit = 'g';
             if (rawQty > 0 && rawQty < 1 && vol > 1) {
               displayQty = Math.round(rawQty * vol);
               unit = 'g';
+            } else if (rawQty >= 10) {
+              displayQty = rawQty;
+              unit = 'g';
+            } else {
+              displayQty = rawQty;
+              unit = 'un';
             }
           } else {
+            displayQty = rawQty;
             unit = 'un';
           }
 
@@ -3821,14 +3845,29 @@ function Products() {
       if (selectedProd) {
         const type = getProductMeasurementType(selectedProd);
         const compUnits = getCompatibleUnits(selectedProd);
+        const vol = getProductVolume(selectedProd);
         items[itemIndex].unit = compUnits[0]?.value || 'un';
         if (type === 'liquid') {
-          items[itemIndex].quantity = 250;
+          items[itemIndex].quantity = items[itemIndex].unit === 'un' ? 1 : (vol > 1 ? (vol >= 1000 ? 150 : Math.round(vol * 0.2)) : 1);
         } else if (type === 'solid') {
-          items[itemIndex].quantity = 400;
+          items[itemIndex].quantity = items[itemIndex].unit === 'un' ? 1 : 400;
         } else {
           items[itemIndex].quantity = 1;
         }
+      }
+    } else if (field === 'unit') {
+      const linked = products.find(p => p.id === items[itemIndex].linked_product_id);
+      const vol = getProductVolume(linked);
+      if (value === 'un') {
+        items[itemIndex].quantity = 1;
+      } else if (value === 'ml') {
+        items[itemIndex].quantity = vol > 1 ? (vol >= 1000 ? 150 : Math.round(vol * 0.2)) : 150;
+      } else if (value === 'L') {
+        items[itemIndex].quantity = 1;
+      } else if (value === 'g') {
+        items[itemIndex].quantity = vol > 1 ? 400 : 100;
+      } else if (value === 'kg') {
+        items[itemIndex].quantity = 1;
       }
     }
     newGroups[groupIndex].product_modifier_items = items;
@@ -5139,6 +5178,55 @@ function Products() {
                                   <X size={15} />
                                 </button>
                               </div>
+
+                              {linkedProd && (
+                                <div className="flex flex-wrap items-center justify-between text-xs px-2.5 py-1 bg-slate-900/60 rounded-lg border border-slate-800/80 text-slate-300">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-semibold text-emerald-400">📦 Baixa:</span>
+                                    {(() => {
+                                      const vol = getProductVolume(linkedProd);
+                                      const qtyNum = parseFloat(item.quantity) || 0;
+                                      const fmt = linkedProd.purchase_unit || (type === 'liquid' ? 'Garrafa' : type === 'solid' ? 'Pacote' : 'Unidade');
+                                      if (currentUnit === 'ml' && vol > 1) {
+                                        const frac = (qtyNum / vol).toFixed(2);
+                                        return (
+                                          <span>
+                                            <strong className="text-white">{qtyNum} ml</strong> (= {frac} {fmt} de {vol}ml)
+                                          </span>
+                                        );
+                                      } else if (currentUnit === 'L') {
+                                        const frac = ((qtyNum * 1000) / (vol > 1 ? vol : 1000)).toFixed(2);
+                                        return (
+                                          <span>
+                                            <strong className="text-white">{qtyNum} L</strong> (= {frac} {fmt})
+                                          </span>
+                                        );
+                                      } else if (currentUnit === 'g' && vol > 1) {
+                                        const frac = (qtyNum / vol).toFixed(2);
+                                        return (
+                                          <span>
+                                            <strong className="text-white">{qtyNum} g</strong> (= {frac} {fmt} de {vol}g)
+                                          </span>
+                                        );
+                                      } else if (currentUnit === 'kg') {
+                                        const frac = ((qtyNum * 1000) / (vol > 1 ? vol : 1000)).toFixed(2);
+                                        return (
+                                          <span>
+                                            <strong className="text-white">{qtyNum} kg</strong> (= {frac} {fmt})
+                                          </span>
+                                        );
+                                      } else {
+                                        return (
+                                          <span>
+                                            <strong className="text-white">{qtyNum} {fmt} inteira(s)</strong>
+                                            {vol > 1 ? ` (${vol}${type === 'liquid' ? 'ml' : 'g'})` : ''}
+                                          </span>
+                                        );
+                                      }
+                                    })()}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
