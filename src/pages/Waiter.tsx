@@ -38,6 +38,8 @@ export default function Waiter() {
   const [wizardProduct, setWizardProduct] = useState<any>(null);
   const [wizardStep, setWizardStep] = useState(0);
   const [wizardSelections, setWizardSelections] = useState<any[]>([]);
+  const [wizardStepSelections, setWizardStepSelections] = useState<{ [stepIdx: number]: any[] }>({});
+  const [stepCounters, setStepCounters] = useState<{ [mItemId: number]: number }>({});
   const [cart, setCart] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -467,9 +469,12 @@ export default function Waiter() {
   const addToCart = (product: any) => {
     // If it has modifiers, open wizard
     if (product.modifier_groups && product.modifier_groups.length > 0 && !product.__is_calculated) {
-      setWizardProduct(product);
+      const sortedGroups = [...product.modifier_groups].sort((a: any, b: any) => (a.step_order || 0) - (b.step_order || 0));
+      setWizardProduct({ ...product, modifier_groups: sortedGroups });
       setWizardStep(0);
       setWizardSelections([]);
+      setWizardStepSelections({});
+      setStepCounters({});
       return;
     }
 
@@ -587,44 +592,128 @@ export default function Waiter() {
     });
   };
 
-  const finalizeWizard = () => {
+  const advanceWizardWithItems = (stepItems: any[]) => {
     if (!wizardProduct) return;
+    const newStepSelections = { ...wizardStepSelections, [wizardStep]: stepItems };
+    setWizardStepSelections(newStepSelections);
 
-    // 1. Calculate the Ratio for inclusive items
-    // Sum of original prices of all chosen items
-    const totalOriginalPrice = wizardSelections.reduce((acc, sel) => acc + (sel.original_price || 0), 0);
-    const ratio = totalOriginalPrice > 0 ? (wizardProduct.price / totalOriginalPrice) : 1;
+    if (wizardStep < wizardProduct.modifier_groups.length - 1) {
+      const nextStep = wizardStep + 1;
+      const nextItems = newStepSelections[nextStep] || [];
+      const restoredCounters: { [id: number]: number } = {};
+      nextItems.forEach((item: any) => {
+        restoredCounters[item.modifier_item_id] = (restoredCounters[item.modifier_item_id] || 0) + (item.count || 1);
+      });
+      setStepCounters(restoredCounters);
+      setWizardStep(nextStep);
+    } else {
+      // Finalize combo
+      const allSelections = Object.values(newStepSelections).flat();
+      const totalOriginalPrice = allSelections.reduce((acc: number, sel: any) => acc + (sel.original_price || 0), 0);
+      const ratio = totalOriginalPrice > 0 ? (wizardProduct.price / totalOriginalPrice) : 1;
 
-    // 2. Adjust prices
-    let finalComboPrice = 0;
-    const finalModifiers = wizardSelections.map(sel => {
-      // Find the name for history transparency
-      const p = products.find(prod => prod.id === sel.product_id);
-      const adjustedPrice = sel.is_fixed_price ? sel.original_price : (sel.original_price * ratio);
-      finalComboPrice += adjustedPrice;
-      return {
-        modifier_item_id: sel.modifier_item_id,
-        product_id: sel.product_id,
-        product_name: p?.name || 'Item',
-        price_at_time: adjustedPrice,
-        cost_at_time: sel.cost_at_time || 0
+      let finalComboPrice = 0;
+      const finalModifiers = allSelections.map((sel: any) => {
+        const p = products.find(prod => prod.id === sel.product_id);
+        const adjustedPrice = sel.is_fixed_price ? sel.original_price : (sel.original_price * ratio);
+        finalComboPrice += adjustedPrice;
+        return {
+          modifier_item_id: sel.modifier_item_id,
+          product_id: sel.product_id,
+          product_name: p?.name || 'Item',
+          price_at_time: adjustedPrice,
+          cost_at_time: sel.cost_at_time || 0,
+          quantity: sel.quantity || 1
+        };
+      });
+
+      const comboInstance = {
+        ...wizardProduct,
+        id: `${wizardProduct.id}_${Date.now()}`,
+        base_product_id: wizardProduct.id,
+        __is_calculated: true,
+        price: finalComboPrice,
+        price_at_time: finalComboPrice,
+        quantity: 1,
+        modifiers: finalModifiers
       };
+
+      setCart(prev => [...prev, comboInstance]);
+      setWizardProduct(null);
+      setWizardStep(0);
+      setWizardSelections([]);
+      setWizardStepSelections({});
+      setStepCounters({});
+    }
+  };
+
+  const handleWizardBack = () => {
+    if (wizardStep > 0) {
+      const prevStep = wizardStep - 1;
+      const prevItems = wizardStepSelections[prevStep] || [];
+      const restoredCounters: { [id: number]: number } = {};
+      prevItems.forEach((item: any) => {
+        restoredCounters[item.modifier_item_id] = (restoredCounters[item.modifier_item_id] || 0) + (item.count || 1);
+      });
+      setStepCounters(restoredCounters);
+      setWizardStep(prevStep);
+    }
+  };
+
+  const handleCloseWizard = () => {
+    setWizardProduct(null);
+    setWizardStep(0);
+    setWizardSelections([]);
+    setWizardStepSelections({});
+    setStepCounters({});
+  };
+
+  const handleConfirmMultiStep = () => {
+    if (!wizardProduct) return;
+    const currentGroup = wizardProduct.modifier_groups[wizardStep];
+    const maxSelect = Math.max(1, parseInt(currentGroup?.max_select) || 1);
+    const totalStepSelected = Object.values(stepCounters).reduce((sum, qty) => sum + qty, 0);
+    if (totalStepSelected < maxSelect) {
+      alert(`Por favor selecione a quantidade total de ${maxSelect} itens para continuar (atualmente: ${totalStepSelected}).`);
+      return;
+    }
+
+    const stepItems: any[] = [];
+    Object.entries(stepCounters).forEach(([mItemIdStr, count]) => {
+      if (count <= 0) return;
+      const mItemId = parseInt(mItemIdStr);
+      const mItem = currentGroup.product_modifier_items.find((i: any) => i.id === mItemId);
+      if (!mItem) return;
+      const p = products.find(prod => prod.id === mItem.linked_product_id);
+      if (!p) return;
+      const baseQty = mItem.quantity !== undefined ? mItem.quantity : 1;
+
+      stepItems.push({
+        modifier_item_id: mItem.id,
+        product_id: p.id,
+        count: count,
+        is_fixed_price: mItem.is_fixed_price,
+        original_price: (p.price || 0) * count,
+        cost_at_time: (p.cost_price || 0) * baseQty * count,
+        quantity: baseQty * count
+      });
     });
 
-    // 3. Add to cart as a "calculated" item
-    const comboInstance = {
-      ...wizardProduct,
-      id: `${wizardProduct.id}_${Date.now()}`, // Unique ID for cart management
-      base_product_id: wizardProduct.id,
-      __is_calculated: true,
-      price: finalComboPrice,
-      price_at_time: finalComboPrice,
-      quantity: 1,
-      modifiers: finalModifiers
-    };
+    advanceWizardWithItems(stepItems);
+  };
 
-    setCart([...cart, comboInstance]);
-    setWizardProduct(null);
+  const handleSelectSingleItem = (mItem: any, p: any) => {
+    const modQty = mItem.quantity !== undefined ? mItem.quantity : 1;
+    const stepItems = [{
+      modifier_item_id: mItem.id,
+      product_id: p.id,
+      count: 1,
+      is_fixed_price: mItem.is_fixed_price,
+      original_price: p.price || 0,
+      cost_at_time: (p.cost_price || 0) * modQty,
+      quantity: modQty
+    }];
+    advanceWizardWithItems(stepItems);
   };
 
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
@@ -1544,134 +1633,230 @@ export default function Waiter() {
       )}
 
       {/* Wizard (Combo Modifiers) Modal */}
-      {wizardProduct && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[60] p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-300">
-            {/* Header */}
-            <div className="p-5 border-b border-slate-800 bg-slate-900/50">
-              <div className="flex justify-between items-start mb-1">
-                <h3 className="text-xl font-extrabold text-white">{wizardProduct.name}</h3>
-                <button onClick={() => setWizardProduct(null)} className="text-slate-500 hover:text-white"><X size={24} /></button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
-                  Passo {wizardStep + 1} de {wizardProduct.modifier_groups.length}
-                </span>
-                <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+      {wizardProduct && (() => {
+        const currentGroup = wizardProduct.modifier_groups[wizardStep];
+        const maxSelect = Math.max(1, parseInt(currentGroup?.max_select) || 1);
+        const isMultiSelect = maxSelect > 1;
+        const totalStepSelected = Object.values(stepCounters).reduce((sum, qty) => sum + qty, 0);
+
+        return (
+          <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[60] p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-300">
+              {/* Header */}
+              <div className="p-5 border-b border-slate-800 bg-slate-900/50">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-2">
+                    {wizardStep > 0 && (
+                      <button 
+                        onClick={handleWizardBack} 
+                        className="p-1.5 -ml-1 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors"
+                        title="Voltar ao passo anterior"
+                      >
+                        <ChevronLeft size={22} />
+                      </button>
+                    )}
+                    <div>
+                      <h3 className="text-xl font-extrabold text-white leading-tight">{wizardProduct.name}</h3>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
+                        Passo {wizardStep + 1} de {wizardProduct.modifier_groups.length}
+                      </span>
+                    </div>
+                  </div>
+                  <button onClick={handleCloseWizard} className="text-slate-500 hover:text-white p-1 rounded-lg">
+                    <X size={22} />
+                  </button>
+                </div>
+                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-blue-500 transition-all duration-500" 
+                    className="h-full bg-blue-500 transition-all duration-300" 
                     style={{ width: `${((wizardStep + 1) / wizardProduct.modifier_groups.length) * 100}%` }}
                   />
                 </div>
               </div>
-            </div>
 
-            {/* Current Step Content */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
-              <div className="mb-4">
-                <h4 className="text-lg font-bold text-slate-200 uppercase tracking-tight">
-                  {wizardProduct.modifier_groups[wizardStep].name}
-                </h4>
-                <p className="text-xs text-slate-500 italic">Selecione uma opção para continuar:</p>
-              </div>
+              {/* Current Step Content */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                <div className="flex justify-between items-start gap-3 pb-1 border-b border-slate-800/60">
+                  <div>
+                    <h4 className="text-lg font-bold text-slate-100 uppercase tracking-tight">
+                      {currentGroup?.name || `Passo ${wizardStep + 1}`}
+                    </h4>
+                    {isMultiSelect ? (
+                      <p className="text-xs text-amber-400 font-medium">
+                        Distribua até <strong>{maxSelect} unidades</strong> entre os sabores:
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">Selecione 1 opção para continuar:</p>
+                    )}
+                  </div>
 
-              <div className="grid grid-cols-1 gap-3">
-                {wizardProduct.modifier_groups[wizardStep].product_modifier_items.map((mItem: any) => {
-                  const p = products.find(prod => prod.id === mItem.linked_product_id);
-                  const hasStock = p && p.stock > 0;
-                  
-                  return (
-                    <button
-                      key={mItem.id}
-                      disabled={!hasStock}
-                      onClick={() => {
-                        const modQty = mItem.quantity !== undefined ? mItem.quantity : 1;
-                        const newSelections = [...wizardSelections, {
-                          modifier_item_id: mItem.id,
-                          product_id: p.id,
-                          is_fixed_price: mItem.is_fixed_price,
-                          original_price: p.price,
-                          cost_at_time: (p.cost_price || 0) * modQty,
-                          quantity: modQty
-                        }];
-                        setWizardSelections(newSelections);
-                        
-                        if (wizardStep < wizardProduct.modifier_groups.length - 1) {
-                          setWizardStep(wizardStep + 1);
-                        } else {
-                          // Submit wizard logic (inlined to avoid state stale)
-                          const totalOriginalPrice = newSelections.reduce((acc, sel) => acc + (sel.original_price || 0), 0);
-                          const ratio = totalOriginalPrice > 0 ? (wizardProduct.price / totalOriginalPrice) : 1;
-                          
-                          let finalComboPrice = 0;
-                          const finalModifiers = newSelections.map(sel => {
-                            const prod = products.find(pr => pr.id === sel.product_id);
-                            const adjustedPrice = sel.is_fixed_price ? sel.original_price : (sel.original_price * ratio);
-                            finalComboPrice += adjustedPrice;
-                            return {
-                              modifier_item_id: sel.modifier_item_id,
-                              product_id: sel.product_id,
-                              product_name: prod?.name || 'Item',
-                              price_at_time: adjustedPrice,
-                              cost_at_time: sel.cost_at_time || 0,
-                              quantity: sel.quantity || 1
-                            };
-                          });
+                  {isMultiSelect && (
+                    <div className={`px-3 py-1 rounded-xl border text-xs font-black flex items-center gap-1.5 shrink-0 ${
+                      totalStepSelected === maxSelect 
+                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' 
+                        : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                    }`}>
+                      <span>{totalStepSelected}</span>
+                      <span className="text-slate-500">/</span>
+                      <span>{maxSelect}</span>
+                      {totalStepSelected === maxSelect && <Check size={14} className="text-emerald-400" />}
+                    </div>
+                  )}
+                </div>
 
-                          const comboInstance = {
-                            ...wizardProduct,
-                            id: `${wizardProduct.id}_${Date.now()}`,
-                            base_product_id: wizardProduct.id,
-                            __is_calculated: true,
-                            price_at_time: finalComboPrice,
-                            quantity: 1,
-                            modifiers: finalModifiers
-                          };
+                <div className="grid grid-cols-1 gap-2.5">
+                  {currentGroup?.product_modifier_items?.map((mItem: any) => {
+                    const p = products.find(prod => prod.id === mItem.linked_product_id);
+                    const stock = p?.stock || 0;
+                    const hasStock = stock > 0;
+                    const count = stepCounters[mItem.id] || 0;
 
-                          setCart([...cart, comboInstance]);
-                          setWizardProduct(null);
-                        }
-                      }}
-                      className={`relative w-full p-4 rounded-2xl border transition-all flex items-center justify-between text-left group ${
-                        hasStock 
-                          ? 'bg-slate-800/40 border-slate-700 hover:border-blue-500 hover:bg-slate-800' 
-                          : 'bg-slate-900/40 border-slate-800 opacity-40 grayscale cursor-not-allowed'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${hasStock ? 'bg-blue-600/20 text-blue-400' : 'bg-slate-800 text-slate-600'}`}>
-                          {p?.name.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-200 group-hover:text-white transition-colors">{p?.name}</p>
-                          <div className="flex items-center gap-2">
-                            {mItem.is_fixed_price && (
-                              <span className="text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Preço Fixo (X)</span>
-                            )}
-                            <span className="text-xs text-slate-500">{hasStock ? `${p.stock} em estoque` : 'Esgotado'}</span>
+                    if (!isMultiSelect) {
+                      return (
+                        <button
+                          key={mItem.id}
+                          disabled={!hasStock}
+                          onClick={() => handleSelectSingleItem(mItem, p)}
+                          className={`relative w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between text-left group ${
+                            hasStock 
+                              ? 'bg-slate-800/40 border-slate-700 hover:border-blue-500 hover:bg-slate-800' 
+                              : 'bg-slate-900/40 border-slate-800 opacity-40 grayscale cursor-not-allowed'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${hasStock ? 'bg-blue-600/20 text-blue-400' : 'bg-slate-800 text-slate-600'}`}>
+                              {p?.name?.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-200 group-hover:text-white transition-colors">{p?.name}</p>
+                              <div className="flex items-center gap-2">
+                                {mItem.is_fixed_price && (
+                                  <span className="text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Preço Fixo (X)</span>
+                                )}
+                                <span className="text-xs text-slate-500">{hasStock ? `${stock} em estoque` : 'Esgotado'}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                             <span className="text-emerald-400 font-bold">R$ {p?.price?.toFixed(2)}</span>
+                          </div>
+                        </button>
+                      );
+                    }
+
+                    // Multi-select Step
+                    return (
+                      <div
+                        key={mItem.id}
+                        onClick={() => {
+                          if (hasStock && totalStepSelected < maxSelect && count < stock) {
+                            setStepCounters(prev => ({
+                              ...prev,
+                              [mItem.id]: (prev[mItem.id] || 0) + 1
+                            }));
+                          }
+                        }}
+                        className={`relative w-full p-3 rounded-2xl border transition-all flex items-center justify-between text-left select-none ${
+                          !hasStock 
+                            ? 'bg-slate-900/40 border-slate-800 opacity-40 grayscale cursor-not-allowed'
+                            : count > 0 
+                              ? 'bg-amber-500/10 border-amber-500/50 shadow-sm shadow-amber-500/5 cursor-pointer' 
+                              : 'bg-slate-800/40 border-slate-700/80 hover:border-slate-600 hover:bg-slate-800/70 cursor-pointer'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                          <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center font-bold ${count > 0 ? 'bg-amber-500 text-slate-950 font-black' : hasStock ? 'bg-slate-800 text-slate-300' : 'bg-slate-900 text-slate-600'}`}>
+                            {count > 0 ? `${count}x` : p?.name?.charAt(0)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className={`font-bold text-sm truncate ${count > 0 ? 'text-amber-300 font-extrabold' : 'text-slate-200'}`}>
+                              {p?.name}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              {mItem.is_fixed_price && (
+                                <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Preço Fixo</span>
+                              )}
+                              <span className="text-[11px] text-slate-400">
+                                {hasStock ? `${stock} em estoque` : 'Esgotado'}
+                              </span>
+                            </div>
                           </div>
                         </div>
+
+                        {hasStock && (
+                          <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              disabled={count === 0}
+                              onClick={() => {
+                                setStepCounters(prev => ({
+                                  ...prev,
+                                  [mItem.id]: Math.max(0, (prev[mItem.id] || 0) - 1)
+                                }));
+                              }}
+                              className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-25 disabled:cursor-not-allowed text-slate-200 font-black flex items-center justify-center transition-colors border border-slate-700"
+                            >
+                              <Minus size={14} />
+                            </button>
+                            
+                            <span className={`w-6 text-center font-black text-sm ${count > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                              {count}
+                            </span>
+
+                            <button
+                              type="button"
+                              disabled={totalStepSelected >= maxSelect || count >= stock}
+                              onClick={() => {
+                                if (totalStepSelected < maxSelect && count < stock) {
+                                  setStepCounters(prev => ({
+                                    ...prev,
+                                    [mItem.id]: (prev[mItem.id] || 0) + 1
+                                  }));
+                                }
+                              }}
+                              className="w-8 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-25 disabled:cursor-not-allowed text-slate-950 font-black flex items-center justify-center transition-colors shadow-sm"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right">
-                         <span className="text-emerald-400 font-bold">R$ {p?.price.toFixed(2)}</span>
-                      </div>
+                    );
+                  })}
+                </div>
+
+                {isMultiSelect && (
+                  <div className="sticky bottom-0 pt-2 pb-1 bg-gradient-to-t from-slate-900 via-slate-900 to-transparent">
+                    <button
+                      type="button"
+                      disabled={totalStepSelected < maxSelect}
+                      onClick={handleConfirmMultiStep}
+                      className="w-full py-3.5 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20 active:scale-[0.99]"
+                    >
+                      {totalStepSelected < maxSelect ? (
+                        <span>Escolha mais {maxSelect - totalStepSelected} {maxSelect - totalStepSelected === 1 ? 'item' : 'itens'} ({totalStepSelected}/{maxSelect})</span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 font-black text-base">
+                          Confirmar {wizardStep < wizardProduct.modifier_groups.length - 1 ? 'e Próximo Passo ➔' : 'Combo e Adicionar ao Carrinho ✨'}
+                        </span>
+                      )}
                     </button>
-                  );
-                })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer / Summary */}
+              <div className="p-4 bg-slate-950 border-t border-slate-800 shrink-0">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-slate-400 text-xs">Preço Base do Combo:</span>
+                  <span className="text-emerald-400 font-extrabold text-base">R$ {wizardProduct.price?.toFixed(2)}</span>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-tight">Itens sem marcação de preço fixo são cobertos pelo valor padrão do combo.</p>
               </div>
             </div>
-
-            {/* Footer / Summary */}
-            <div className="p-5 bg-slate-950 border-t border-slate-800 shrink-0">
-               <div className="flex justify-between items-center mb-1">
-                 <span className="text-slate-400 text-xs">Preço Base do Combo:</span>
-                 <span className="text-white font-bold">R$ {wizardProduct.price.toFixed(2)}</span>
-               </div>
-               <p className="text-[10px] text-slate-500 leading-tight">Itens sem marcação (X) recebem desconto proporcional para chegar ao valor base.</p>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Cart Sheet */}
       {cart.length > 0 && (
@@ -1700,8 +1885,8 @@ export default function Waiter() {
                 {item.modifiers && item.modifiers.length > 0 && (
                   <div className="pl-2 border-l border-slate-800 space-y-0.5">
                     {item.modifiers.map((m: any, mIdx: number) => (
-                      <p key={mIdx} className="text-[10px] text-slate-500 flex justify-between">
-                        <span>• {m.product_name || 'Opção selecionada'}</span>
+                      <p key={mIdx} className="text-[10px] text-slate-400 flex justify-between">
+                        <span>• {m.quantity > 1 ? `${m.quantity}x ` : ''}{m.product_name || 'Opção selecionada'}</span>
                         <span>R$ {m.price_at_time?.toFixed(2)}</span>
                       </p>
                     ))}
@@ -1760,8 +1945,8 @@ export default function Waiter() {
                       </div>
                       {item.modifiers && item.modifiers.length > 0 && (
                         <div className="pl-3 mt-0.5 text-xs">
-                          {item.modifiers.map((m, mIdx) => (
-                            <div key={mIdx}>+ {m.product_name}</div>
+                          {item.modifiers.map((m: any, mIdx: number) => (
+                            <div key={mIdx}>+ {m.quantity > 1 ? `${m.quantity}x ` : ''}{m.product_name}</div>
                           ))}
                         </div>
                       )}
@@ -2421,6 +2606,15 @@ export default function Waiter() {
                       <div>
                         <p className="font-medium text-slate-200">{item.product_name}{att}</p>
                         <p className="text-xs text-slate-500">{item.quantity}x R$ {item.price_at_time?.toFixed(2)}</p>
+                        {item.modifiers && item.modifiers.length > 0 && (
+                          <div className="pl-2 mt-1 border-l-2 border-slate-700 space-y-0.5">
+                            {item.modifiers.map((m: any, mIdx: number) => (
+                              <p key={mIdx} className="text-[10px] text-slate-400">
+                                • {m.product?.name || m.product_name || 'Opção'}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         {isRecent && <span className="text-xs text-blue-400">recente</span>}
                       </div>
                       <div className="flex flex-col items-end gap-1">

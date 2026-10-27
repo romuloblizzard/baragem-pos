@@ -3418,6 +3418,8 @@ function Products() {
       // Converte modifier_groups para unidades amigáveis respeitando Garrafa/Lata/Unidade (un) vs frações (ml/g)
       const formattedModGroups = (editingProduct.modifier_groups || []).map((mg: any) => ({
         ...mg,
+        min_select: mg.min_select !== undefined ? mg.min_select : (mg.max_select || 1),
+        max_select: mg.max_select !== undefined ? mg.max_select : 1,
         product_modifier_items: (mg.product_modifier_items || []).map((item: any) => {
           const linked = products.find(p => p.id === item.linked_product_id);
           const type = getProductMeasurementType(linked);
@@ -3688,6 +3690,8 @@ function Products() {
 
     data.modifier_groups = modifierGroups.map((mg: any) => ({
       ...mg,
+      min_select: Math.max(1, parseInt(mg.min_select) || parseInt(mg.max_select) || 1),
+      max_select: Math.max(1, parseInt(mg.max_select) || 1),
       product_modifier_items: (mg.product_modifier_items || []).map((item: any) => {
         const linked = products.find(p => p.id === item.linked_product_id);
         const type = getProductMeasurementType(linked);
@@ -5080,7 +5084,7 @@ function Products() {
                       </button>
                       
                       <div className="grid grid-cols-12 gap-3 mb-4">
-                        <div className="col-span-8">
+                        <div className="col-span-12 sm:col-span-6">
                           <label className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Nome do Passo {gIdx + 1}</label>
                           <input 
                             type="text" 
@@ -5090,7 +5094,7 @@ function Products() {
                             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500"
                           />
                         </div>
-                        <div className="col-span-4">
+                        <div className="col-span-6 sm:col-span-3">
                           <label className="block text-[10px] text-slate-500 uppercase font-bold mb-1">Ordem (Pulo)</label>
                           <input 
                             type="number" 
@@ -5099,7 +5103,31 @@ function Products() {
                             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none"
                           />
                         </div>
+                        <div className="col-span-6 sm:col-span-3">
+                          <label className="block text-[10px] text-amber-400 uppercase font-bold mb-1" title="Quantidade total de itens que o cliente pode escolher neste passo (ex: 4 gelos ou 4 energéticos)">
+                            Qtd Cota (Total)
+                          </label>
+                          <input 
+                            type="number" 
+                            min="1"
+                            value={group.max_select !== undefined ? group.max_select : 1} 
+                            onChange={(e) => {
+                              const val = Math.max(1, parseInt(e.target.value) || 1);
+                              updateModifierGroup(gIdx, 'max_select', val);
+                              updateModifierGroup(gIdx, 'min_select', val);
+                            }}
+                            className="w-full bg-slate-800 border border-amber-500/40 text-amber-300 font-bold rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-400"
+                            placeholder="Ex: 4"
+                          />
+                        </div>
                       </div>
+
+                      {(group.max_select || 1) > 1 && (
+                        <div className="mb-3 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-400 text-xs flex items-center justify-between">
+                          <span>✨ <strong>Passo com multi-escolha:</strong> o garçom poderá distribuir até <strong>{group.max_select} unidades</strong> entre os sabores abaixo (ex: 2 coco + 1 melancia + 1 maracujá).</span>
+                          <span className="font-bold uppercase tracking-wider text-[10px] bg-amber-500/20 px-2 py-0.5 rounded">Cota: {group.max_select} un</span>
+                        </div>
+                      )}
 
                       <div className="space-y-2">
                         <div className="flex justify-between items-center">

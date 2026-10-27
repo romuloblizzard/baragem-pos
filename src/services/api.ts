@@ -735,16 +735,28 @@ export const api = {
 
       // 3. Handle modifiers if any
       if (item.modifiers && item.modifiers.length > 0) {
-        const modifierInserts = item.modifiers.map((m: any) => ({
-          order_item_id: insertedItem.id,
-          modifier_item_id: m.modifier_item_id,
-          product_id: m.product_id,
-          price_at_time: m.price_at_time,
-          cost_at_time: m.cost_at_time || 0
-        }));
+        const modifierInserts: any[] = [];
+        for (const m of item.modifiers) {
+          const qty = m.quantity !== undefined ? parseFloat(m.quantity) : 1;
+          const count = Math.max(1, Math.round(qty));
+          const unitPrice = (m.price_at_time || 0) / count;
+          const unitCost = (m.cost_at_time || 0) / count;
 
-        const { error: modError } = await supabase.from('order_item_modifiers').insert(modifierInserts);
-        if (modError) throw modError;
+          for (let i = 0; i < count; i++) {
+            modifierInserts.push({
+              order_item_id: insertedItem.id,
+              modifier_item_id: m.modifier_item_id,
+              product_id: m.product_id,
+              price_at_time: unitPrice,
+              cost_at_time: unitCost
+            });
+          }
+        }
+
+        if (modifierInserts.length > 0) {
+          const { error: modError } = await supabase.from('order_item_modifiers').insert(modifierInserts);
+          if (modError) throw modError;
+        }
 
         // Abate estoque dos itens selecionados no Wizard (Pulos)
         for (const m of item.modifiers) {
