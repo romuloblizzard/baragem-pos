@@ -344,6 +344,9 @@ export const api = {
     const { error } = await supabase.from('products').update({ active: false }).eq('id', id);
     if (error) throw error;
 
+    // 1.1 Desvincula produtos filhos órfãos para que não fiquem invisíveis em limbo
+    await supabase.from('products').update({ parent_id: null }).eq('parent_id', id);
+
     // 2. Auto-clean from digital menu config
     try {
       const { data: settingsData } = await supabase.from('settings').select('*').eq('key', 'digital_menu_config').maybeSingle();

@@ -31,8 +31,8 @@ const getProductVolume = (p: any): number => {
   return 1;
 };
 
-// Helper inteligente para classificar o insumo: líquido, sólido/peso ou unitário
-const getProductMeasurementType = (p: any): 'liquid' | 'solid' | 'unit' => {
+// Helper inteligente para classificar o insumo: líquido, sólido/peso, unitário ou gelo (híbrido)
+const getProductMeasurementType = (p: any): 'liquid' | 'solid' | 'unit' | 'ice' => {
   if (!p) return 'unit';
   const name = (p.name || '').toLowerCase();
   const u = (p.unit || '').toLowerCase();
@@ -40,39 +40,59 @@ const getProductMeasurementType = (p: any): 'liquid' | 'solid' | 'unit' => {
   const vol = p.bottle_volume_ml || p.unit_conversion_factor || 0;
   
   // Se for unidade estrita e não tiver volume de fracionamento (ou volume <= 1), é unitário
-  // Ex: Energético em lata, cerveja em lata, água, refrigerante em lata
+  // Ex: Energético em lata, cerveja em lata, água, refrigerante em lata, gelo de coco individual
   if (u === 'un' && (fmt === 'unidade' || fmt === 'lata' || !fmt) && vol <= 1) {
     return 'unit';
   }
 
-  if (u === 'ml' || u === 'l' || fmt.includes('garrafa') || fmt.includes('barril') || fmt.includes('balde') || vol > 1 || /litro|ml|\b\d+l\b/i.test(name)) {
-    // Se explicitamente cadastrado como unidade sem fracionamento
-    if (u === 'un' && fmt === 'unidade' && vol <= 1) return 'unit';
-    return 'liquid';
+  // 🧊 Gelo fracionado de água / saco / cubo / britado (insumo híbrido peso x volume)
+  if (
+    /gelo\s+(?:de\s+)?(?:água|agua|cubo|cubos|britado|moído|moido|filtrada|filtrado)/i.test(name) ||
+    (name.includes('gelo') && !name.includes('coco') && !name.includes('sabor') && (u === 'g' || u === 'kg' || fmt.includes('pacote') || fmt.includes('saco')) && vol > 1)
+  ) {
+    return 'ice';
   }
-  if (u === 'g' || u === 'kg' || fmt.includes('pacote') || /quilo|kilo|\b\d+kg\b|\b\d+g\b|grama/i.test(name)) {
+
+  // 🍗 Sólidos / Peso fracionados (Frango, Calabresa, Batata, Queijo)
+  if (u === 'g' || u === 'kg' || fmt.includes('pacote') || fmt.includes('saco') || /quilo|kilo|\b\d+kg\b|\b\d+g\b|grama/i.test(name)) {
     if (u === 'un' && fmt === 'unidade' && vol <= 1) return 'unit';
     return 'solid';
   }
+
+  // 💧 Líquidos fracionados (Garrafa, Litro, Gin, Vodka, Whisky, Energético)
+  if (u === 'ml' || u === 'l' || fmt.includes('garrafa') || fmt.includes('barril') || fmt.includes('balde') || vol > 1 || /litro|ml|\b\d+l\b/i.test(name)) {
+    if (u === 'un' && fmt === 'unidade' && vol <= 1) return 'unit';
+    return 'liquid';
+  }
+
   return 'unit';
 };
 
 // Helper inteligente para amarrar apenas as unidades coerentes e permitidas
 const getCompatibleUnits = (p: any): Array<{ value: string; label: string }> => {
   const type = getProductMeasurementType(p);
-  const fmt = p?.purchase_unit || (type === 'liquid' ? 'Garrafa' : type === 'solid' ? 'Pacote' : 'Unidade');
+  const fmt = p?.purchase_unit || (type === 'liquid' ? 'Garrafa' : (type === 'solid' || type === 'ice') ? 'Pacote' : 'Unidade');
+  if (type === 'ice') {
+    return [
+      { value: 'ml', label: 'ml' },
+      { value: 'g', label: 'g' },
+      { value: 'L', label: 'L' },
+      { value: 'kg', label: 'kg' },
+      { value: 'un', label: `${fmt} (un)` }
+    ];
+  }
   if (type === 'liquid') {
     return [
-      { value: 'un', label: `${fmt} (un)` },
       { value: 'ml', label: 'ml' },
-      { value: 'L', label: 'L' }
+      { value: 'L', label: 'L' },
+      { value: 'un', label: `${fmt} (un)` }
     ];
   }
   if (type === 'solid') {
     return [
-      { value: 'un', label: `${fmt} (un)` },
       { value: 'g', label: 'g' },
-      { value: 'kg', label: 'kg' }
+      { value: 'kg', label: 'kg' },
+      { value: 'un', label: `${fmt} (un)` }
     ];
   }
   return [
@@ -3428,15 +3448,15 @@ function Products() {
           let unit = item.unit;
           let displayQty = rawQty;
 
-          if (type === 'liquid') {
+          if (type === 'ice' || type === 'liquid') {
             if (rawQty > 0 && rawQty < 1 && vol > 1) {
-              // Fração salva (ex: 0.20 = 150ml de garrafa de 750ml)
+              // Fração salva (ex: 0.20 = 150ml de garrafa de 750ml, ou 0.03 = 150ml de gelo de 5000g)
               displayQty = Math.round(rawQty * vol);
-              unit = 'ml';
+              unit = item.unit || 'ml';
             } else if (rawQty >= 10) {
               // Valor legado salvo em ml
               displayQty = rawQty;
-              unit = 'ml';
+              unit = item.unit || 'ml';
             } else {
               // Unidades / latas / garrafas inteiras (ex: 1 lata de energético, 1 garrafa)
               displayQty = rawQty;
@@ -3445,10 +3465,10 @@ function Products() {
           } else if (type === 'solid') {
             if (rawQty > 0 && rawQty < 1 && vol > 1) {
               displayQty = Math.round(rawQty * vol);
-              unit = 'g';
+              unit = item.unit || 'g';
             } else if (rawQty >= 10) {
               displayQty = rawQty;
-              unit = 'g';
+              unit = item.unit || 'g';
             } else {
               displayQty = rawQty;
               unit = 'un';
@@ -3472,15 +3492,15 @@ function Products() {
         let unit = ing.unit;
         let displayQty = rawQty;
 
-        if (type === 'liquid') {
+        if (type === 'ice' || type === 'liquid') {
           if (rawQty > 0 && rawQty < 1 && vol > 1) {
-            // Fração salva (ex: 0.20 = 150ml de garrafa de 750ml)
+            // Fração salva (ex: 0.20 = 150ml de garrafa de 750ml, ou 0.03 = 150ml de gelo de 5000g)
             displayQty = Math.round(rawQty * vol);
-            unit = 'ml';
+            unit = ing.unit || 'ml';
           } else if (rawQty >= 10) {
             // Valor legado já salvo em ml (ex: 150, 250)
             displayQty = rawQty;
-            unit = 'ml';
+            unit = ing.unit || 'ml';
           } else {
             // Garrafas / unidades inteiras (ex: 1, 2 garrafas)
             displayQty = rawQty;
@@ -3490,11 +3510,11 @@ function Products() {
           if (rawQty > 0 && rawQty < 1 && vol > 1) {
             // Fração salva (ex: 0.40 = 400g de pacote de 1000g)
             displayQty = Math.round(rawQty * vol);
-            unit = 'g';
+            unit = ing.unit || 'g';
           } else if (rawQty >= 10) {
             // Valor legado já salvo em g (ex: 100, 400)
             displayQty = rawQty;
-            unit = 'g';
+            unit = ing.unit || 'g';
           } else {
             // Pacotes / unidades inteiras
             displayQty = rawQty;
@@ -3700,22 +3720,16 @@ function Products() {
         const qty = parseFloat(ing.quantity) || 0;
         let savedQty = qty;
 
-        if (type === 'liquid') {
-          if (unit === 'ml' && vol > 1) {
-            savedQty = qty / vol;
-          } else if (unit === 'L') {
-            savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
-          } else {
-            savedQty = qty;
-          }
-        } else if (type === 'solid') {
-          if (unit === 'g' && vol > 1) {
-            savedQty = qty / vol;
-          } else if (unit === 'kg') {
-            savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
-          } else {
-            savedQty = qty;
-          }
+        if (unit === 'ml' && vol > 1) {
+          savedQty = qty / vol;
+        } else if (unit === 'L') {
+          savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
+        } else if (unit === 'g' && vol > 1) {
+          savedQty = qty / vol;
+        } else if (unit === 'kg') {
+          savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
+        } else {
+          savedQty = qty;
         }
 
         return {
@@ -3742,22 +3756,16 @@ function Products() {
         const qty = parseFloat(item.quantity) || 0;
         let savedQty = qty;
 
-        if (type === 'liquid') {
-          if (unit === 'ml' && vol > 1) {
-            savedQty = qty / vol;
-          } else if (unit === 'L') {
-            savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
-          } else {
-            savedQty = qty;
-          }
-        } else if (type === 'solid') {
-          if (unit === 'g' && vol > 1) {
-            savedQty = qty / vol;
-          } else if (unit === 'kg') {
-            savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
-          } else {
-            savedQty = qty;
-          }
+        if (unit === 'ml' && vol > 1) {
+          savedQty = qty / vol;
+        } else if (unit === 'L') {
+          savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
+        } else if (unit === 'g' && vol > 1) {
+          savedQty = qty / vol;
+        } else if (unit === 'kg') {
+          savedQty = (qty * 1000) / (vol > 1 ? vol : 1000);
+        } else {
+          savedQty = qty;
         }
 
         return {
@@ -3803,10 +3811,10 @@ function Products() {
         const compUnits = getCompatibleUnits(selectedProd);
         const vol = getProductVolume(selectedProd);
         newIngredients[index].unit = compUnits[0]?.value || 'un';
-        if (type === 'liquid') {
-          newIngredients[index].quantity = vol > 1 ? (vol >= 1000 ? 150 : Math.round(vol * 0.2)) : 1;
+        if (type === 'liquid' || type === 'ice') {
+          newIngredients[index].quantity = newIngredients[index].unit === 'un' ? 1 : (vol > 1 ? (vol >= 1000 ? 150 : Math.round(vol * 0.2)) : 1);
         } else if (type === 'solid') {
-          newIngredients[index].quantity = vol > 1 ? 400 : 1;
+          newIngredients[index].quantity = newIngredients[index].unit === 'un' ? 1 : 400;
         } else {
           newIngredients[index].quantity = 1;
         }
@@ -3814,6 +3822,7 @@ function Products() {
     } else if (field === 'unit') {
       const linked = products.find(p => p.id === newIngredients[index].ingredient_id);
       const vol = getProductVolume(linked);
+      const type = getProductMeasurementType(linked);
       if (value === 'un') {
         newIngredients[index].quantity = 1;
       } else if (value === 'ml') {
@@ -3821,7 +3830,7 @@ function Products() {
       } else if (value === 'L') {
         newIngredients[index].quantity = 1;
       } else if (value === 'g') {
-        newIngredients[index].quantity = vol > 1 ? 400 : 100;
+        newIngredients[index].quantity = type === 'ice' ? 150 : (vol > 1 ? 400 : 100);
       } else if (value === 'kg') {
         newIngredients[index].quantity = 1;
       }
@@ -3898,7 +3907,7 @@ function Products() {
         const compUnits = getCompatibleUnits(selectedProd);
         const vol = getProductVolume(selectedProd);
         items[itemIndex].unit = compUnits[0]?.value || 'un';
-        if (type === 'liquid') {
+        if (type === 'liquid' || type === 'ice') {
           items[itemIndex].quantity = items[itemIndex].unit === 'un' ? 1 : (vol > 1 ? (vol >= 1000 ? 150 : Math.round(vol * 0.2)) : 1);
         } else if (type === 'solid') {
           items[itemIndex].quantity = items[itemIndex].unit === 'un' ? 1 : 400;
@@ -3909,6 +3918,7 @@ function Products() {
     } else if (field === 'unit') {
       const linked = products.find(p => p.id === items[itemIndex].linked_product_id);
       const vol = getProductVolume(linked);
+      const type = getProductMeasurementType(linked);
       if (value === 'un') {
         items[itemIndex].quantity = 1;
       } else if (value === 'ml') {
@@ -3916,7 +3926,7 @@ function Products() {
       } else if (value === 'L') {
         items[itemIndex].quantity = 1;
       } else if (value === 'g') {
-        items[itemIndex].quantity = vol > 1 ? 400 : 100;
+        items[itemIndex].quantity = type === 'ice' ? 150 : (vol > 1 ? 400 : 100);
       } else if (value === 'kg') {
         items[itemIndex].quantity = 1;
       }
@@ -4100,7 +4110,8 @@ function Products() {
           </thead>
           <tbody className="divide-y divide-slate-800">
             {products.filter(p => {
-              if (p.parent_id) return false;
+              // Só oculta a variação se o produto pai realmente existir e estiver ativo na lista carregada
+              if (p.parent_id && products.some(parent => parent.id === p.parent_id)) return false;
               if (typeFilter === 'simples' && p.type !== 'simple') return false;
               if (typeFilter === 'composition' && p.type !== 'composition') return false;
               if (typeFilter === 'variable' && p.type !== 'variable') return false;
@@ -4797,9 +4808,16 @@ function Products() {
                           return (
                             <div className="mt-3 text-sm text-blue-300 flex items-center gap-2 bg-blue-900/30 p-2.5 rounded-lg border border-blue-700/50">
                               <span className="text-base">🔄</span>
-                              <span>
-                                O sistema converterá e fará o controle fracionado em: <strong className="text-white bg-blue-600 px-2 py-0.5 rounded font-bold font-mono">{label}</strong>
-                              </span>
+                              <div>
+                                <span>
+                                  O sistema converterá e fará o controle fracionado em: <strong className="text-white bg-blue-600 px-2 py-0.5 rounded font-bold font-mono">{label}</strong>
+                                </span>
+                                {(/gelo/i.test(editingProduct?.name || '')) && (
+                                  <span className="block text-xs text-blue-200 mt-1">
+                                    💡 <strong>Gelo (Híbrido Água):</strong> Como 1kg = 1L (1g = 1ml), nas receitas você poderá dar baixa tanto em <strong>gramas (g)</strong> quanto em <strong>mililitros (ml)</strong>.
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           );
                         })()}
@@ -5001,7 +5019,7 @@ function Products() {
                                 const vol = getProductVolume(p);
                                 const pType = getProductMeasurementType(p);
                                 const labelVol = pType === 'liquid' && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'L' : vol + 'ml'}]` :
-                                                 pType === 'solid' && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'kg' : vol + 'g'}]` : '';
+                                                 (pType === 'solid' || pType === 'ice') && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'kg' : vol + 'g'}]` : '';
                                 return (
                                   <option key={p.id} value={p.id}>
                                     {p.name}{labelVol} ({p.stock} {p.purchase_unit || p.unit || 'un'})
@@ -5048,12 +5066,12 @@ function Products() {
                                 {(() => {
                                   const vol = getProductVolume(linkedProd);
                                   const qtyNum = parseFloat(ing.quantity) || 0;
-                                  const fmt = linkedProd.purchase_unit || (type === 'liquid' ? 'Garrafa' : type === 'solid' ? 'Pacote' : 'Unidade');
+                                  const fmt = linkedProd.purchase_unit || (type === 'liquid' ? 'Garrafa' : (type === 'solid' || type === 'ice') ? 'Pacote' : 'Unidade');
                                   if (currentUnit === 'ml' && vol > 1) {
                                     const frac = (qtyNum / vol).toFixed(2);
                                     return (
                                       <span>
-                                        <strong className="text-white">{qtyNum} ml</strong> (= {frac} {fmt} de {vol}ml)
+                                        <strong className="text-white">{qtyNum} ml</strong> (= {frac} {fmt} de {vol}{type === 'ice' ? 'g/ml' : 'ml'})
                                       </span>
                                     );
                                   } else if (currentUnit === 'L') {
@@ -5261,7 +5279,7 @@ function Products() {
                                     const vol = getProductVolume(p);
                                     const pType = getProductMeasurementType(p);
                                     const labelVol = pType === 'liquid' && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'L' : vol + 'ml'}]` :
-                                                     pType === 'solid' && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'kg' : vol + 'g'}]` : '';
+                                                     (pType === 'solid' || pType === 'ice') && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'kg' : vol + 'g'}]` : '';
                                     return (
                                       <option key={p.id} value={p.id}>
                                         {p.name}{labelVol} ({p.stock} {p.purchase_unit || p.unit || 'un'})
@@ -5319,12 +5337,12 @@ function Products() {
                                     {(() => {
                                       const vol = getProductVolume(linkedProd);
                                       const qtyNum = parseFloat(item.quantity) || 0;
-                                      const fmt = linkedProd.purchase_unit || (type === 'liquid' ? 'Garrafa' : type === 'solid' ? 'Pacote' : 'Unidade');
+                                      const fmt = linkedProd.purchase_unit || (type === 'liquid' ? 'Garrafa' : (type === 'solid' || type === 'ice') ? 'Pacote' : 'Unidade');
                                       if (currentUnit === 'ml' && vol > 1) {
                                         const frac = (qtyNum / vol).toFixed(2);
                                         return (
                                           <span>
-                                            <strong className="text-white">{qtyNum} ml</strong> (= {frac} {fmt} de {vol}ml)
+                                            <strong className="text-white">{qtyNum} ml</strong> (= {frac} {fmt} de {vol}{type === 'ice' ? 'g/ml' : 'ml'})
                                           </span>
                                         );
                                       } else if (currentUnit === 'L') {
@@ -7632,7 +7650,7 @@ function Purchases() {
                                 const prodType = getProductMeasurementType(prod);
                                 const volLabel = prodType === 'liquid' && prodVol > 1
                                   ? ` (${prodVol >= 1000 && prodVol % 1000 === 0 ? prodVol / 1000 + 'L' : prodVol + 'ml'})`
-                                  : prodType === 'solid' && prodVol > 1
+                                  : (prodType === 'solid' || prodType === 'ice') && prodVol > 1
                                   ? ` (${prodVol >= 1000 && prodVol % 1000 === 0 ? prodVol / 1000 + 'kg' : prodVol + 'g'})`
                                   : '';
 
@@ -7929,10 +7947,11 @@ function Purchases() {
                           selectedProduct.purchase_unit === 'Garrafa' ||
                           selectedProduct.purchase_unit === 'Lata' ||
                           selectedProduct.bottle_volume_ml > 0 ||
-                          getProductMeasurementType(selectedProduct) === 'solid') && (
+                          getProductMeasurementType(selectedProduct) === 'solid' ||
+                          getProductMeasurementType(selectedProduct) === 'ice') && (
                           <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3 flex-wrap">
                             <span className="text-xs text-amber-400 font-semibold flex items-center gap-1.5">
-                              {getProductMeasurementType(selectedProduct) === 'solid'
+                              {(getProductMeasurementType(selectedProduct) === 'solid' || getProductMeasurementType(selectedProduct) === 'ice')
                                 ? '⚖️ Peso por Embalagem / Pacote:'
                                 : '🍾 Volume por Garrafa / Lata / Unidade:'}
                             </span>
@@ -7950,7 +7969,7 @@ function Purchases() {
                                 className="w-28 bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-1.5 text-white font-bold text-xs text-right outline-none focus:border-amber-400"
                               />
                               <span className="text-xs text-slate-300 font-bold">
-                                {getProductMeasurementType(selectedProduct) === 'solid' ? 'g' : 'ml'}
+                                {(getProductMeasurementType(selectedProduct) === 'solid' || getProductMeasurementType(selectedProduct) === 'ice') ? 'g' : 'ml'}
                               </span>
                             </div>
                           </div>
