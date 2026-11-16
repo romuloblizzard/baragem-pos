@@ -5022,7 +5022,7 @@ function Products() {
                                                  (pType === 'solid' || pType === 'ice') && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'kg' : vol + 'g'}]` : '';
                                 return (
                                   <option key={p.id} value={p.id}>
-                                    {p.name}{labelVol} ({p.stock} {p.purchase_unit || p.unit || 'un'})
+                                    {p.name}{labelVol}
                                   </option>
                                 );
                               })}
@@ -5061,7 +5061,7 @@ function Products() {
 
                           {linkedProd && (
                             <div className="flex flex-wrap items-center justify-between text-xs px-2.5 py-1 bg-slate-900/60 rounded-lg border border-slate-800/80 text-slate-300">
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="font-semibold text-emerald-400">📦 Baixa:</span>
                                 {(() => {
                                   const vol = getProductVolume(linkedProd);
@@ -5103,6 +5103,21 @@ function Products() {
                                       </span>
                                     );
                                   }
+                                })()}
+                                <span className="text-slate-600 px-1.5">│</span>
+                                <span className="font-semibold text-sky-400">📊 Estoque:</span>
+                                {(() => {
+                                  const vol = getProductVolume(linkedProd);
+                                  const fmt = linkedProd.purchase_unit || (type === 'liquid' ? 'Garrafa(s)' : (type === 'solid' || type === 'ice') ? 'Pacote(s)' : 'Unidade(s)');
+                                  const stockVal = Number(linkedProd.stock) || 0;
+                                  const totalVol = vol > 1 ? stockVal * vol : 0;
+                                  const volStr = totalVol > 0 ? (type === 'liquid' || type === 'ice' ? ` (${totalVol.toLocaleString('pt-BR')} ml)` : ` (${totalVol.toLocaleString('pt-BR')} g)`) : '';
+                                  return (
+                                    <span>
+                                      <strong className="text-white">{stockVal} {fmt}</strong>
+                                      {volStr && <span className="text-slate-400 text-[11px]">{volStr}</span>}
+                                    </span>
+                                  );
                                 })()}
                               </div>
                               <div className="text-right">
@@ -5282,7 +5297,7 @@ function Products() {
                                                      (pType === 'solid' || pType === 'ice') && vol > 1 ? ` [${vol >= 1000 && vol % 1000 === 0 ? vol / 1000 + 'kg' : vol + 'g'}]` : '';
                                     return (
                                       <option key={p.id} value={p.id}>
-                                        {p.name}{labelVol} ({p.stock} {p.purchase_unit || p.unit || 'un'})
+                                        {p.name}{labelVol}
                                       </option>
                                     );
                                   })}
@@ -5332,7 +5347,7 @@ function Products() {
 
                               {linkedProd && (
                                 <div className="flex flex-wrap items-center justify-between text-xs px-2.5 py-1 bg-slate-900/60 rounded-lg border border-slate-800/80 text-slate-300">
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className="font-semibold text-emerald-400">📦 Baixa:</span>
                                     {(() => {
                                       const vol = getProductVolume(linkedProd);
@@ -5374,6 +5389,21 @@ function Products() {
                                           </span>
                                         );
                                       }
+                                    })()}
+                                    <span className="text-slate-600 px-1.5">│</span>
+                                    <span className="font-semibold text-sky-400">📊 Estoque:</span>
+                                    {(() => {
+                                      const vol = getProductVolume(linkedProd);
+                                      const fmt = linkedProd.purchase_unit || (type === 'liquid' ? 'Garrafa(s)' : (type === 'solid' || type === 'ice') ? 'Pacote(s)' : 'Unidade(s)');
+                                      const stockVal = Number(linkedProd.stock) || 0;
+                                      const totalVol = vol > 1 ? stockVal * vol : 0;
+                                      const volStr = totalVol > 0 ? (type === 'liquid' || type === 'ice' ? ` (${totalVol.toLocaleString('pt-BR')} ml)` : ` (${totalVol.toLocaleString('pt-BR')} g)`) : '';
+                                      return (
+                                        <span>
+                                          <strong className="text-white">{stockVal} {fmt}</strong>
+                                          {volStr && <span className="text-slate-400 text-[11px]">{volStr}</span>}
+                                        </span>
+                                      );
                                     })()}
                                   </div>
                                 </div>
@@ -7211,7 +7241,7 @@ function Purchases() {
                               <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex-1">
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="text-emerald-400 font-black">✓</span>
                                       <span className="text-white font-bold text-sm">{selectedProduct.name}</span>
                                     </div>

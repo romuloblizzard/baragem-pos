@@ -788,28 +788,19 @@ export const api = {
           const { error: modError } = await supabase.from('order_item_modifiers').insert(modifierInserts);
           if (modError) throw modError;
         }
-
-        // Abate estoque dos itens selecionados no Wizard (Pulos)
-        for (const m of item.modifiers) {
-          if (m.product_id) {
-            const deductQty = (m.quantity !== undefined ? parseFloat(m.quantity) : 1) * (item.quantity || 1);
-            try {
-              const { data: pData } = await supabase.from('products').select('stock').eq('id', m.product_id).single();
-              if (pData) {
-                const currentStock = parseFloat(pData.stock) || 0;
-                await supabase.from('products').update({ stock: Math.max(0, currentStock - deductQty) }).eq('id', m.product_id);
-              }
-            } catch (stockErr) {
-              console.error('Erro ao abater estoque do modificador:', stockErr);
-            }
-          }
-        }
+        // Nota: O estoque dos modificadores ja e abatido automaticamente pelo Trigger do PostgreSQL na tabela order_item_modifiers.
       }
     }
 
     return { success: true };
   },
   removeOrderItem: async (orderId: number, itemId: number) => {
+    // 1. Remove os modificadores primeiro enquanto o order_item pai ainda existe,
+    // garantindo que a trigger do banco restaure o estoque corretamente sem receber NULL por cascata
+    const { error: modError } = await supabase.from('order_item_modifiers').delete().eq('order_item_id', itemId);
+    if (modError) console.error('Aviso ao remover modificadores do item:', modError);
+
+    // 2. Remove o item pai da comanda
     const { error } = await supabase.from('order_items').delete().eq('id', itemId).eq('order_id', orderId);
     if (error) throw error;
     return { success: true };
